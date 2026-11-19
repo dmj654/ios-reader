@@ -4,6 +4,11 @@
 //
 //  TXT / EPUB 阅读页：分页、翻页、目录、字号行距、主题、进度记忆
 //
+//  v0.5 修复：
+//  1. 正文以前超出屏幕右边（一行的末尾被切掉）—— 现在严格按可用宽度计算和渲染
+//  2. 顶部返回按钮压在状态栏上 —— 现在整个页面遵守安全区
+//  3. 左边缘向右划直接退出阅读
+//
 
 import SwiftUI
 import UIKit
@@ -28,68 +33,64 @@ struct TextReaderView: View {
     @State private var showSettings = false
     @State private var errorText: String?
 
+    /// 正文四周留白
+    private let hPad: CGFloat = 22
+    private let vPad: CGFloat = 16
+
     var body: some View {
-        GeometryReader { geo in
-            let insets = EdgeInsets(
-                top: geo.safeAreaInsets.top + 14,
-                leading: 22,
-                bottom: geo.safeAreaInsets.bottom + 14,
-                trailing: 22
-            )
-            let contentSize = CGSize(
-                width: max(1, geo.size.width - insets.leading - insets.trailing),
-                height: max(1, geo.size.height - insets.top - insets.bottom)
-            )
+        ZStack {
+            settings.theme.background.ignoresSafeArea()
 
-            ZStack {
-                settings.theme.background.ignoresSafeArea()
+            GeometryReader { geo in
+                let contentSize = CGSize(
+                    width: max(1, geo.size.width - hPad * 2),
+                    height: max(1, geo.size.height - vPad * 2)
+                )
 
-                if isLoading {
-                    ProgressView("正在解析…")
-                        .tint(settings.theme.foreground)
-                        .foregroundStyle(settings.theme.foreground)
-                } else if let errorText {
-                    VStack(spacing: 12) {
-                        Image(systemName: "exclamationmark.triangle")
-                        Text(errorText)
-                            .multilineTextAlignment(.center)
-                    }
-                    .foregroundStyle(settings.theme.foreground)
-                    .padding(40)
-                } else {
-                    pageContent
-                        .padding(insets)
-                        .contentShape(Rectangle())
-                        .onTapGesture(count: 1, coordinateSpace: .local) { point in
-                            handleTap(at: point, in: contentSize)
+                ZStack(alignment: .topLeading) {
+                    if isLoading {
+                        ProgressView("正在解析…")
+                            .tint(settings.theme.foreground)
+                            .foregroundStyle(settings.theme.foreground)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                    } else if let errorText {
+                        VStack(spacing: 12) {
+                            Image(systemName: "exclamationmark.triangle")
+                            Text(errorText).multilineTextAlignment(.center)
                         }
-                        .gesture(
-                            DragGesture(minimumDistance: 30)
-                                .onEnded { value in
-                                    if value.translation.width < -40 {
-                                        turn(by: 1)
-                                    } else if value.translation.width > 40 {
-                                        turn(by: -1)
-                                    }
-                                }
-                        )
-                        .animation(settings.pageTurn == .none ? nil : .easeInOut(duration: 0.18), value: pageIndex)
+                        .foregroundStyle(settings.theme.foreground)
+                        .padding(40)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                    } else {
+                        pageContent(size: contentSize)
+                            .padding(EdgeInsets(top: vPad, leading: hPad, bottom: vPad, trailing: hPad))
+                            .contentShape(Rectangle())
+                            .onTapGesture(count: 1, coordinateSpace: .local) { point in
+                                handleTap(at: point, in: contentSize)
+                            }
+                            .gesture(swipeGesture)
+                            .animation(settings.pageTurn == .none ? nil : .easeInOut(duration: 0.18), value: pageIndex)
+                    }
                 }
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                .onAppear {
+                    if innerSize != contentSize {
+                        innerSize = contentSize
+                        repaginate(keepingOffset: true)
+                    }
+                }
+                .onChange(of: contentSize) { _, newValue in
+                    guard newValue != innerSize else { return }
+                    innerSize = newValue
+                    repaginate(keepingOffset: true)
+                }
+            }
 
-                if showMenu {
-                    menuOverlay(geo: geo)
-                        .transition(.opacity)
-                }
-            }
-            .onAppear {
-                innerSize = contentSize
-            }
-            .onChange(of: contentSize) { _, newValue in
-                innerSize = newValue
-                repaginate(keepingOffset: true)
+            if showMenu {
+                menuOverlay
+                    .transition(.opacity)
             }
         }
-        .ignoresSafeArea()
         .task { await load() }
         .onChange(of: settings.fontSize) { _, _ in repaginate(keepingOffset: true) }
         .onChange(of: settings.lineSpacing) { _, _ in repaginate(keepingOffset: true) }
@@ -98,18 +99,19 @@ struct TextReaderView: View {
         .sheet(isPresented: $showSettings) { SettingsView(settings: settings) }
     }
 
-    // MARK: - 正文渲染
+    // MARK: - 正文
 
     @ViewBuilder
-    private var pageContent: some View {
-        if pageIndex < pageRanges.count {
+    private func pageContent(size: CGSize) -> some View {
+        if pageRanges.isEmpty == false, pageIndex < pageRanges.count {
             PageTextView(
                 attributedText: pageAttributedString(pageRanges[pageIndex]),
                 theme: settings.theme
             )
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
             .id(pageIndex)
         } else {
-            Color.clear
+            Color.clear.frame(width: size.width, height: size.height)
         }
     }
 
@@ -125,18 +127,42 @@ struct TextReaderView: View {
         return NSAttributedString(string: slice, attributes: attrs)
     }
 
+    // MARK: - 手势
+
+    private var swipeGesture: some Gesture {
+        DragGesture(minimumDistance: 20, coordinateSpace: .global)
+            .onEnded { value in
+                let dx = value.translation.width
+                let dy = value.translation.height
+                guard abs(dx) > abs(dy) else { return }
+
+                // 屏幕左边缘往右划 → 退出阅读
+                if value.startLocation.x < 44, dx > 70 {
+                    saveProgress()
+                    onExit()
+                    return
+                }
+
+                if dx < -50 {
+                    turn(by: 1)
+                } else if dx > 50 {
+                    turn(by: -1)
+                }
+            }
+    }
+
     // MARK: - 菜单
 
-    private func menuOverlay(geo: GeometryProxy) -> some View {
-        VStack {
-            // 顶部
-            HStack(spacing: 16) {
+    private var menuOverlay: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 14) {
                 Button {
                     saveProgress()
                     onExit()
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 18, weight: .semibold))
+                        .frame(width: 30, height: 30, alignment: .leading)
                 }
                 Text(book.title)
                     .font(.subheadline.weight(.medium))
@@ -146,36 +172,37 @@ struct TextReaderView: View {
                     showTOC = true
                 } label: {
                     Image(systemName: "list.bullet")
-                        .font(.system(size: 18))
+                        .font(.system(size: 17))
+                        .frame(width: 30, height: 30, alignment: .trailing)
                 }
             }
             .foregroundStyle(settings.theme.foreground)
-            .padding(.horizontal, 22)
-            .padding(.top, geo.safeAreaInsets.top + 8)
-            .padding(.bottom, 12)
-            .background(settings.theme.background.opacity(0.96))
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+            .background(
+                settings.theme.background.opacity(0.97)
+                    .ignoresSafeArea(edges: .top)
+            )
 
             Spacer()
 
-            // 底部
             VStack(spacing: 14) {
                 HStack(spacing: 12) {
-                    Text("\(pageIndex + 1)")
-                        .font(.caption)
+                    Text("\(pageIndex + 1)").font(.caption).monospacedDigit()
                     Slider(
                         value: Binding(
                             get: { Double(pageIndex) },
                             set: { newValue in
+                                guard pageRanges.isEmpty == false else { return }
                                 pageIndex = min(pageRanges.count - 1, max(0, Int(newValue)))
                             }
                         ),
                         in: 0...Double(max(1, pageRanges.count - 1))
                     )
-                    Text("\(pageRanges.count)")
-                        .font(.caption)
+                    Text("\(pageRanges.count)").font(.caption).monospacedDigit()
                 }
 
-                HStack(spacing: 28) {
+                HStack(spacing: 26) {
                     Button {
                         settings.fontSize = max(13, settings.fontSize - 1)
                     } label: {
@@ -190,8 +217,8 @@ struct TextReaderView: View {
                     Button {
                         showSettings = true
                     } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "Aa")
+                        HStack(spacing: 5) {
+                            Image(systemName: "textformat")
                             Text("设置").font(.caption)
                         }
                     }
@@ -199,10 +226,13 @@ struct TextReaderView: View {
                 .font(.system(size: 18))
             }
             .foregroundStyle(settings.theme.foreground)
-            .padding(.horizontal, 22)
+            .padding(.horizontal, 20)
             .padding(.top, 14)
-            .padding(.bottom, geo.safeAreaInsets.bottom + 8)
-            .background(settings.theme.background.opacity(0.96))
+            .padding(.bottom, 8)
+            .background(
+                settings.theme.background.opacity(0.97)
+                    .ignoresSafeArea(edges: .bottom)
+            )
         }
     }
 
@@ -218,12 +248,10 @@ struct TextReaderView: View {
                         showMenu = false
                     } label: {
                         HStack {
-                            Text(chapter.title)
-                                .lineLimit(1)
+                            Text(chapter.title).lineLimit(1)
                             Spacer()
                             if isCurrent(chapterIndex: index) {
-                                Image(systemName: "bookmark.fill")
-                                    .foregroundStyle(.tint)
+                                Image(systemName: "bookmark.fill").foregroundStyle(.tint)
                             }
                         }
                     }
@@ -247,9 +275,9 @@ struct TextReaderView: View {
             return
         }
         let ratio = point.x / max(1, size.width)
-        if ratio < 0.28 {
+        if ratio < 0.3 {
             turn(by: -1)
-        } else if ratio > 0.72 {
+        } else if ratio > 0.7 {
             turn(by: 1)
         } else {
             withAnimation { showMenu = true }
@@ -314,7 +342,6 @@ struct TextReaderView: View {
         flatText = flattenedContent.text
         chapterStarts = flattenedContent.chapterStarts
 
-        // 顺手把书名补全（EPUB 内嵌了真实书名）
         if book.format == .epub, bookText.title.isEmpty == false {
             shelf.updateTitle(bookID: book.id, title: bookText.title, author: bookText.author, total: flatText.utf16.count)
         }

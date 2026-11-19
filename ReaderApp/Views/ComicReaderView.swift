@@ -75,12 +75,20 @@ struct ComicReaderView: View {
                         }
                     }
                     .gesture(
-                        DragGesture(minimumDistance: 40)
+                        DragGesture(minimumDistance: 30, coordinateSpace: .global)
                             .onEnded { value in
+                                let dx = value.translation.width
+                                let dy = value.translation.height
+                                guard abs(dx) > abs(dy) else { return }
+                                if value.startLocation.x < 44, dx > 70 {
+                                    saveProgress()
+                                    onExit()
+                                    return
+                                }
                                 guard zoom < 1.05 else { return }
-                                if value.translation.width < -50 {
+                                if dx < -50 {
                                     turn(by: 1)
-                                } else if value.translation.width > 50 {
+                                } else if dx > 50 {
                                     turn(by: -1)
                                 }
                             }
@@ -113,10 +121,9 @@ struct ComicReaderView: View {
                     .lineLimit(1)
                 Spacer()
             }
-            .padding(.horizontal, 22)
-            .padding(.top, 10)
-            .padding(.bottom, 12)
-            .background(.black.opacity(0.6))
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+            .background(.black.opacity(0.7).ignoresSafeArea(edges: .top))
 
             Spacer()
 
@@ -138,10 +145,10 @@ struct ComicReaderView: View {
                     .font(.caption)
             }
             .foregroundStyle(.white)
-            .padding(.horizontal, 22)
-            .padding(.top, 14)
-            .padding(.bottom, 34)
-            .background(.black.opacity(0.6))
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+            .background(.black.opacity(0.7).ignoresSafeArea(edges: .bottom))
         }
         .foregroundStyle(.white)
     }
