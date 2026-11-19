@@ -79,9 +79,9 @@ final class BookshelfViewModel: ObservableObject {
             guard name != shelfFileName else { continue }
             let src = docsDir.appendingPathComponent(name)
             guard isRegularFile(src) else { continue }
-            guard BookFormat.from(fileURL: src) != nil else { continue }
+            guard let format = BookFormat.detect(for: src) else { continue }
 
-            let dest = uniqueDestination(preferredName: name)
+            let dest = uniqueDestination(preferredName: normalizedName(name, format: format))
             moveOrCopy(from: src, to: dest)
         }
     }
@@ -115,10 +115,19 @@ final class BookshelfViewModel: ObservableObject {
         let known = Set(books.map { $0.fileName })
         for name in onDisk where known.contains(name) == false {
             let url = booksDir.appendingPathComponent(name)
-            guard isRegularFile(url), let format = BookFormat.from(fileURL: url) else { continue }
+            guard isRegularFile(url), let format = BookFormat.detect(for: url) else { continue }
             books.append(makeBook(for: url, format: format, fileName: name))
         }
         save()
+    }
+
+    /// 把没有扩展名 / 扩展名不对的文件补成正确的扩展名
+    private func normalizedName(_ name: String, format: BookFormat) -> String {
+        let base = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension.lowercased()
+        if ext == format.fileExtension { return name }
+        let cleanBase = base.isEmpty ? "未命名" : base
+        return "\(cleanBase).\(format.fileExtension)"
     }
 
     /// 生成不冲突的目标路径
@@ -140,14 +149,14 @@ final class BookshelfViewModel: ObservableObject {
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
 
-        guard let format = BookFormat.from(fileURL: url) else {
+        guard let format = BookFormat.detect(for: url) else {
             let ext = url.pathExtension.isEmpty ? "无扩展名" : url.pathExtension
-            alertMessage = "暂不支持 .\(ext) 格式。\n支持：TXT / EPUB / PDF / CBZ"
+            alertMessage = "这个文件读不出来（\(ext)），不是 TXT / EPUB / PDF / CBZ"
             return
         }
         ensureDirs()
 
-        let dest = uniqueDestination(preferredName: url.lastPathComponent)
+        let dest = uniqueDestination(preferredName: normalizedName(url.lastPathComponent, format: format))
 
         var ok = false
         if (try? fm.copyItem(at: url, to: dest)) != nil { ok = true }

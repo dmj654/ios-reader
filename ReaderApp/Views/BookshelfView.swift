@@ -12,7 +12,7 @@ struct BookshelfView: View {
     @EnvironmentObject var shelf: BookshelfViewModel
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var settings = ReadingSettings()
-    @State private var showImporter = false
+    @State private var showPicker = false
     @State private var selectedBook: Book?
     @State private var showSettings = false
     @State private var toast: String?
@@ -43,25 +43,16 @@ struct BookshelfView: View {
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
-                        shelf.scan()
-                        show("已刷新书架")
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    Button {
-                        showImporter = true
+                        showPicker = true
                     } label: {
                         Image(systemName: "plus").fontWeight(.semibold)
                     }
                 }
             }
-            .fileImporter(
-                isPresented: $showImporter,
-                allowedContentTypes: allowedTypes,
-                allowsMultipleSelection: true
-            ) { result in
-                switch result {
-                case .success(let urls):
+            .sheet(isPresented: $showPicker) {
+                DocumentPicker(contentTypes: pickTypes, allowsMultiple: true) { urls in
+                    showPicker = false
+                    guard urls.isEmpty == false else { return }
                     for url in urls { shelf.importBook(from: url) }
                     if let msg = shelf.alertMessage {
                         shelf.alertMessage = nil
@@ -69,8 +60,6 @@ struct BookshelfView: View {
                     } else {
                         show("已导入 \(urls.count) 个文件")
                     }
-                case .failure(let error):
-                    show("选择文件失败：\(error.localizedDescription)")
                 }
             }
             .alert("提示", isPresented: Binding(
@@ -94,13 +83,12 @@ struct BookshelfView: View {
         }
     }
 
-    private var allowedTypes: [UTType] {
-        var types: [UTType] = []
-        types.append(.item)          // 兜底：允许所有文件
+    private var pickTypes: [UTType] {
+        var types: [UTType] = [.item]     // public.item 兜底：所有文件都能选
         types.append(.plainText)
         types.append(.pdf)
         types.append(.zip)
-        for ext in ["epub", "cbz", "txt", "azw3", "mobi"] {
+        for ext in ["epub", "cbz", "txt"] {
             if let t = UTType(filenameExtension: ext) { types.append(t) }
         }
         return types
@@ -152,7 +140,7 @@ struct BookshelfView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("点右上角 +，从「文件」里选书", systemImage: "plus.circle")
                     Label("或把书放进「文件」App → 我的 iPhone → 本地阅读器", systemImage: "folder")
-                    Label("放好之后点右上角刷新按钮，或把这个 App 切到后台再回来", systemImage: "arrow.clockwise")
+                    Label("放好之后下拉刷新，或把 App 切到后台再切回来", systemImage: "arrow.down")
                 }
                 .font(.footnote)
                 .foregroundStyle(.secondary)

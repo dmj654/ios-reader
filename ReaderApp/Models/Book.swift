@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import ZIPFoundation
 
 /// 支持的书籍格式
 enum BookFormat: String, Codable, Hashable, CaseIterable {
@@ -23,6 +24,46 @@ enum BookFormat: String, Codable, Hashable, CaseIterable {
         case "cbz", "zip": return .comic
         default: return nil
         }
+    }
+
+    /// 对应扩展名（用于给没有扩展名的文件补上）
+    var fileExtension: String {
+        switch self {
+        case .txt: return "txt"
+        case .epub: return "epub"
+        case .pdf: return "pdf"
+        case .comic: return "cbz"
+        }
+    }
+
+    /// 先看扩展名，认不出来就嗅探文件头。
+    /// 微信 / QQ 存下来的书经常没有扩展名（文件名就是 "1"、"31" 这种），必须靠内容判断。
+    static func detect(for url: URL) -> BookFormat? {
+        if let f = from(fileURL: url) { return f }
+
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let head = (try? handle.read(upToCount: 8)) ?? Data()
+
+        if head.starts(with: Array("%PDF".utf8)) { return .pdf }
+
+        if head.starts(with: [0x50, 0x4B, 0x03, 0x04]) {
+            // ZIP 家族：有 META-INF/container.xml 就是 EPUB，否则当漫画包
+            if let archive = Archive(url: url, accessMode: .read),
+               archive["META-INF/container.xml"] != nil {
+                return .epub
+            }
+            return .comic
+        }
+
+        // 纯文本启发：无 NUL 字节且能被文本解码器读出来
+        if let data = try? Data(contentsOf: url), data.isEmpty == false {
+            let sample = data.prefix(4096)
+            if sample.contains(0) == false, TextLoader.decode(data) != nil {
+                return .txt
+            }
+        }
+        return nil
     }
 
     var iconName: String {
