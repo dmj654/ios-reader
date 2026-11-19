@@ -57,8 +57,8 @@ targets:
       properties:
         CFBundleDisplayName: "本地阅读器"
         CFBundleName: "本地阅读器"
-        CFBundleShortVersionString: "0.5.0"
-        CFBundleVersion: "5"
+        CFBundleShortVersionString: "0.6.0"
+        CFBundleVersion: "6"
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
         UIRequiresFullScreen: false
@@ -78,6 +78,11 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
         UISupportsDocumentBrowser: false
         CFBundleDocumentTypes:
+          # 兜底：任何文件都能「拷贝到本地阅读器」（微信/QQ 分享文件时才会出现这个 App）
+          - CFBundleTypeName: "任意文件"
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: ["public.data"]
           - CFBundleTypeName: "纯文本"
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
@@ -96,5 +101,12 @@ targets:
           - CFBundleTypeName: "漫画压缩包"
             CFBundleTypeRole: Viewer
             LSHandlerRank: Owner
-            CFBundleTypeExtensions: ["cbz", "zip"]
-            LSItemContentTypes: ["public.zip-archive"]
+            CFBundleTypeExtensions: ["cbz", "cbr", "zip"]
+            LSItemContentTypes: ["public.zip-archive", "com.local.reader.cbz"]
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: "com.local.reader.cbz"
+            UTTypeDescription: "漫画压缩包"
+            UTTypeConformsTo:
+              - public.zip-archive
+            UTTypeTagSpecification:
+              public.filename-extension: ["cbz"]

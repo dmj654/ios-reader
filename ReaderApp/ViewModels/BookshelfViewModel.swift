@@ -72,17 +72,23 @@ final class BookshelfViewModel: ObservableObject {
         refreshFromDisk()
     }
 
-    /// 把 Documents 根目录（以及 Books 下）里能识别的书都收进书架
-    private func adoptLooseFiles() {
-        let rootNames = (try? fm.contentsOfDirectory(atPath: docsDir.path)) ?? []
-        for name in rootNames {
-            guard name != shelfFileName else { continue }
-            let src = docsDir.appendingPathComponent(name)
-            guard isRegularFile(src) else { continue }
-            guard let format = BookFormat.detect(for: src) else { continue }
+    /// 系统「拷贝到本 App」时文件会先落在 Documents/Inbox
+    private var inboxDir: URL { docsDir.appendingPathComponent("Inbox") }
 
-            let dest = uniqueDestination(preferredName: normalizedName(name, format: format))
-            moveOrCopy(from: src, to: dest)
+    /// 把 Documents 根目录 和 Inbox 里能识别的书都收进书架
+    private func adoptLooseFiles() {
+        for dir in [docsDir, inboxDir] {
+            guard fm.fileExists(atPath: dir.path) else { continue }
+            let names = (try? fm.contentsOfDirectory(atPath: dir.path)) ?? []
+            for name in names {
+                guard name != shelfFileName else { continue }
+                let src = dir.appendingPathComponent(name)
+                guard isRegularFile(src) else { continue }
+                guard let format = BookFormat.detect(for: src) else { continue }
+
+                let dest = uniqueDestination(preferredName: normalizedName(name, format: format))
+                moveOrCopy(from: src, to: dest)
+            }
         }
     }
 
@@ -178,6 +184,11 @@ final class BookshelfViewModel: ObservableObject {
                 alertMessage = "导入失败：\(reason)"
                 return
             }
+        }
+
+        // 从 Inbox 来的（微信分享「拷贝到」）拿走后把原件删掉，避免重复登记
+        if url.path.contains("/Inbox/") {
+            try? fm.removeItem(at: url)
         }
 
         // 复制成功后统一走扫描登记，避免重复登记

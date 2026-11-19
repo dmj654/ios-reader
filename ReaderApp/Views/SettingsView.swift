@@ -80,6 +80,15 @@ struct SettingsView: View {
                 } header: {
                     Text("翻页")
                 }
+
+                Section {
+                    Toggle("图片铺满宽度", isOn: $settings.comicFitWidth)
+                    Toggle("从右往左翻页（日漫）", isOn: $settings.comicRTL)
+                } header: {
+                    Text("漫画")
+                } footer: {
+                    Text("铺满宽度适合竖条漫，可上下滑动看图；关闭则整页完整显示。")
+                }
             }
             .navigationTitle("阅读设置")
             .navigationBarTitleDisplayMode(.inline)

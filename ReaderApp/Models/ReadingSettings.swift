@@ -79,6 +79,14 @@ final class ReadingSettings: ObservableObject {
     @Published var pageTurn: PageTurnStyle {
         didSet { defaults.set(pageTurn.rawValue, forKey: Keys.pageTurn) }
     }
+    /// 漫画：图片铺满宽度（适合竖条漫），关闭则整页显示
+    @Published var comicFitWidth: Bool {
+        didSet { defaults.set(comicFitWidth, forKey: Keys.comicFitWidth) }
+    }
+    /// 漫画：从右往左翻页（日漫）
+    @Published var comicRTL: Bool {
+        didSet { defaults.set(comicRTL, forKey: Keys.comicRTL) }
+    }
 
     private let defaults = UserDefaults.standard
 
@@ -87,6 +95,8 @@ final class ReadingSettings: ObservableObject {
         static let lineSpacing = "reader.lineSpacing"
         static let theme = "reader.theme"
         static let pageTurn = "reader.pageTurn"
+        static let comicFitWidth = "reader.comicFitWidth"
+        static let comicRTL = "reader.comicRTL"
     }
 
     init() {
@@ -95,10 +105,14 @@ final class ReadingSettings: ObservableObject {
         let spacing = d.object(forKey: Keys.lineSpacing) as? Double
         let themeRaw = d.string(forKey: Keys.theme)
         let turnRaw = d.string(forKey: Keys.pageTurn)
+        let fitWidth = d.object(forKey: Keys.comicFitWidth) as? Bool
+        let rtl = d.object(forKey: Keys.comicRTL) as? Bool
 
         self.fontSize = size ?? 19
         self.lineSpacing = spacing ?? 8
         self.theme = ReaderTheme(rawValue: themeRaw ?? "") ?? .paper
         self.pageTurn = PageTurnStyle(rawValue: turnRaw ?? "") ?? .slide
+        self.comicFitWidth = fitWidth ?? false
+        self.comicRTL = rtl ?? false
     }
 }
