@@ -2,22 +2,45 @@
 //  BookshelfView.swift
 //  ReaderApp
 //
-//  书架首页
+//  书架首页（v0.8）：封面网格 + 分组胶囊 + 搜索 + 真实封面（自动抽第一页）
 //
 
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - 分组
+
+enum ShelfFilter: String, CaseIterable, Identifiable {
+    case all, novel, comic, recent
+
+    var id: String { rawValue }
+
+    var name: String {
+        switch self {
+        case .all: return "全部"
+        case .novel: return "小说"
+        case .comic: return "漫画"
+        case .recent: return "最近"
+        }
+    }
+}
+
 struct BookshelfView: View {
     @EnvironmentObject var shelf: BookshelfViewModel
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var settings = ReadingSettings()
+
     @State private var showPicker = false
     @State private var selectedBook: Book?
     @State private var showSettings = false
     @State private var toast: String?
 
-    private let columns = [GridItem(.adaptive(minimum: 104, maximum: 140), spacing: 18)]
+    @State private var query = ""
+    @State private var searchActive = false
+    @State private var filter: ShelfFilter = .all
+    @State private var coverVersion = 0
+
+    private let columns = [GridItem(.adaptive(minimum: 96, maximum: 132), spacing: 14, alignment: .top)]
 
     var body: some View {
         NavigationStack {
@@ -25,7 +48,7 @@ struct BookshelfView: View {
                 if shelf.books.isEmpty {
                     emptyState
                 } else {
-                    grid
+                    content
                 }
                 if let toast {
                     toastView(toast)
@@ -36,12 +59,17 @@ struct BookshelfView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
+                        searchActive = true
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
                         showSettings = true
                     } label: {
                         Image(systemName: "slider.horizontal.3")
                     }
-                }
-                ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
                         showPicker = true
                     } label: {
@@ -49,6 +77,7 @@ struct BookshelfView: View {
                     }
                 }
             }
+            .searchable(text: $query, isPresented: $searchActive, prompt: "搜索书名")
             .sheet(isPresented: $showPicker) {
                 DocumentPicker(contentTypes: pickTypes, allowsMultiple: true) { urls in
                     showPicker = false
@@ -84,7 +113,7 @@ struct BookshelfView: View {
     }
 
     private var pickTypes: [UTType] {
-        var types: [UTType] = [.item]     // public.item 兜底：所有文件都能选
+        var types: [UTType] = [.item]
         types.append(.plainText)
         types.append(.pdf)
         types.append(.zip)
@@ -94,58 +123,136 @@ struct BookshelfView: View {
         return types
     }
 
-    // MARK: - 书架网格
+    // MARK: - 主体
 
-    private var grid: some View {
+    private var content: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 20) {
-                ForEach(shelf.books) { book in
-                    Button { selectedBook = book } label: {
-                        BookCell(book: book)
+            VStack(alignment: .leading, spacing: 14) {
+                filterBar
+
+                if visibleBooks.isEmpty {
+                    VStack(spacing: 8) {
+                        Text(query.isEmpty ? "这个分组里还没有书" : "没有匹配「\(query)」的书")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        Button {
-                            selectedBook = book
-                        } label: {
-                            Label("继续阅读", systemImage: "book")
-                        }
-                        Button(role: .destructive) {
-                            shelf.delete(book)
-                        } label: {
-                            Label("删除", systemImage: "trash")
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 60)
+                } else {
+                    LazyVGrid(columns: columns, spacing: 18) {
+                        ForEach(visibleBooks) { book in
+                            Button {
+                                selectedBook = book
+                            } label: {
+                                CoverCell(book: book, version: coverVersion)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button {
+                                    selectedBook = book
+                                } label: {
+                                    Label("继续阅读", systemImage: "book")
+                                }
+                                Button {
+                                    CoverStore.clear(bookID: book.id)
+                                    coverVersion += 1
+                                    show("正在重新生成封面")
+                                } label: {
+                                    Label("重新生成封面", systemImage: "arrow.triangle.2.circlepath")
+                                }
+                                Button(role: .destructive) {
+                                    CoverStore.clear(bookID: book.id)
+                                    shelf.delete(book)
+                                } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
+                            }
                         }
                     }
                 }
             }
             .padding(.horizontal, 18)
-            .padding(.vertical, 12)
+            .padding(.top, 2)
+            .padding(.bottom, 24)
         }
         .refreshable { shelf.scan() }
     }
 
+    private var filterBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(ShelfFilter.allCases) { item in
+                    Button {
+                        withAnimation(.easeOut(duration: 0.15)) { filter = item }
+                    } label: {
+                        Text(item.name)
+                            .font(.system(size: 13, weight: .medium))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .foregroundStyle(filter == item ? Color.white : Color.secondary)
+                            .background(
+                                Capsule().fill(
+                                    filter == item
+                                        ? Color.primary.opacity(0.88)
+                                        : Color(uiColor: .secondarySystemBackground)
+                                )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private var visibleBooks: [Book] {
+        var list = shelf.books
+
+        switch filter {
+        case .all:
+            break
+        case .novel:
+            list = list.filter { $0.format != .comic }
+        case .comic:
+            list = list.filter { $0.format == .comic }
+        case .recent:
+            list = list.filter { $0.lastReadAt != nil }
+        }
+
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty == false {
+            list = list.filter { $0.title.localizedCaseInsensitiveContains(trimmed) }
+        }
+
+        return list.sorted { lhs, rhs in
+            (lhs.lastReadAt ?? lhs.addedAt) > (rhs.lastReadAt ?? rhs.addedAt)
+        }
+    }
+
+    // MARK: - 空书架
+
     private var emptyState: some View {
         ScrollView {
-            VStack(spacing: 16) {
+            VStack(spacing: 14) {
                 Image(systemName: "books.vertical")
-                    .font(.system(size: 54, weight: .light))
+                    .font(.system(size: 50, weight: .light))
                     .foregroundStyle(.secondary)
-                    .padding(.top, 60)
+                    .padding(.top, 70)
+
                 Text("书架是空的")
                     .font(.title3.weight(.medium))
+
                 Text("支持 TXT / EPUB / PDF / CBZ 漫画")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
                 VStack(alignment: .leading, spacing: 10) {
                     Label("点右上角 +，从「文件」里选书", systemImage: "plus.circle")
-                    Label("或把书放进「文件」App → 我的 iPhone → 本地阅读器", systemImage: "folder")
-                    Label("放好之后下拉刷新，或把 App 切到后台再切回来", systemImage: "arrow.down")
+                    Label("或放进「文件」→ 我的 iPhone → 本地阅读器", systemImage: "folder")
                 }
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-                .padding(.top, 10)
-                .padding(.horizontal, 8)
+                .padding(.top, 12)
             }
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
@@ -177,64 +284,103 @@ struct BookshelfView: View {
     }
 }
 
-// MARK: - 单本书的卡片
+// MARK: - 封面格
 
-struct BookCell: View {
+struct CoverCell: View {
     let book: Book
+    let version: Int
+
+    @State private var cover: UIImage?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 7) {
             ZStack(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [book.format.tintColor.opacity(0.85), book.format.tintColor.opacity(0.55)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .aspectRatio(0.72, contentMode: .fit)
-                    .overlay(
-                        VStack(spacing: 10) {
-                            Image(systemName: book.format.iconName)
-                                .font(.system(size: 22))
-                                .foregroundStyle(.white.opacity(0.9))
-                            Text(book.title)
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(.white)
-                                .multilineTextAlignment(.center)
-                                .lineLimit(4)
-                                .padding(.horizontal, 10)
-                        }
-                        .padding(10)
-                    )
+                coverLayer
 
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.25))
-                        Capsule()
-                            .fill(.white)
-                            .frame(width: max(2, geo.size.width * book.progress))
+                if book.progress > 0.01 {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Rectangle().fill(Color.black.opacity(0.28))
+                            Rectangle()
+                                .fill(Color.white.opacity(0.95))
+                                .frame(width: max(2, geo.size.width * book.progress))
+                        }
                     }
+                    .frame(height: 3)
                 }
-                .frame(height: 3)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 8)
             }
+            .aspectRatio(0.72, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(Color.primary.opacity(0.07), lineWidth: 0.5)
+            )
 
             Text(book.title)
-                .font(.system(size: 12))
-                .lineLimit(1)
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.primary)
-            HStack(spacing: 4) {
-                Text(book.format.rawValue)
-                if book.progress > 0.01 {
-                    Text("·")
-                    Text("\(Int(book.progress * 100))%")
+                .lineLimit(1)
+
+            Text(subtitle)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .task(id: version) { await loadCover() }
+    }
+
+    private var coverLayer: some View {
+        ZStack {
+            if let cover {
+                Color.clear
+                    .overlay {
+                        Image(uiImage: cover)
+                            .resizable()
+                            .scaledToFill()
+                    }
+            } else {
+                LinearGradient(
+                    colors: [book.format.tintColor.opacity(0.92), book.format.tintColor.opacity(0.55)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .overlay {
+                    Text(initial)
+                        .font(.system(size: 26, weight: .semibold, design: .serif))
+                        .foregroundStyle(.white.opacity(0.95))
                 }
             }
-            .font(.system(size: 10))
-            .foregroundStyle(.secondary)
+        }
+        .clipped()
+    }
+
+    private var initial: String {
+        let trimmed = book.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(trimmed.prefix(1)).isEmpty ? "书" : String(trimmed.prefix(1))
+    }
+
+    private var subtitle: String {
+        if book.isRead { return "已读完 · \(book.format.rawValue)" }
+        if book.progress > 0.005 { return "\(Int((book.progress * 100).rounded()))% · \(book.format.rawValue)" }
+        return "未开始 · \(book.format.rawValue)"
+    }
+
+    private func loadCover() async {
+        if let disk = CoverStore.cached(bookID: book.id) {
+            cover = disk
+            return
+        }
+        guard book.format != .txt else { return }
+
+        let url = book.absoluteURL
+        let format = book.format
+        let id = book.id
+        let image = await Task.detached(priority: .utility) { () -> UIImage? in
+            CoverStore.generate(url: url, format: format, bookID: id)
+        }.value
+
+        if let image {
+            cover = image
         }
     }
 }
