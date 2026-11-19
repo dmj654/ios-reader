@@ -108,11 +108,11 @@ enum RuleParser {
             case .html:
                 return (try? element.outerHtml()) ?? ""
             case .href:
-                return absolutize(element.attr("href"), base: base)
+                return absolutize((try? element.attr("href")) ?? "", base: base)
             case .src:
-                return absolutize(element.attr("src"), base: base)
+                return absolutize((try? element.attr("src")) ?? "", base: base)
             case .attr(let name):
-                return element.attr(name)
+                return (try? element.attr(name)) ?? ""
             }
 
         case .json(let any):
