@@ -2,7 +2,9 @@
 //  BookshelfViewModel.swift
 //  ReaderApp
 //
-//  书架：导入 / 删除 / 排序 / 进度保存
+//  书架：导入 / 扫描本地文件 / 删除 / 进度保存
+//  关键点：通过「文件」App 或数据线放进来的书会落在 Documents 根目录，
+//         所以每次启动和回到前台都要扫描根目录 + Books 子目录，并把根目录的书归位。
 //
 
 import Foundation
@@ -15,24 +17,33 @@ import UniformTypeIdentifiers
 final class BookshelfViewModel: ObservableObject {
 
     @Published var books: [Book] = []
-    @Published var message: String?
+    @Published var alertMessage: String?
 
+    private let fm = FileManager.default
     private let storeURL: URL
+    private let shelfFileName = "bookshelf.json"
 
+    /// App 沙盒的 Documents 目录（「文件」App 里显示为「我的 iPhone / 本地阅读器」）
+    private var docsDir: URL {
+        fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    }
+
+    /// 书籍统一存放目录
     var booksDir: URL {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let dir = docs.appendingPathComponent("Books")
-        if FileManager.default.fileExists(atPath: dir.path) == false {
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
-        return dir
+        docsDir.appendingPathComponent("Books")
     }
 
     init() {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        storeURL = docs.appendingPathComponent("bookshelf.json")
+        storeURL = docsDir.appendingPathComponent("bookshelf.json")
+        ensureDirs()
         load()
-        syncWithDisk()
+        scan()
+    }
+
+    private func ensureDirs() {
+        if fm.fileExists(atPath: booksDir.path) == false {
+            try? fm.createDirectory(at: booksDir, withIntermediateDirectories: true)
+        }
     }
 
     // MARK: - 持久化
@@ -51,55 +62,117 @@ final class BookshelfViewModel: ObservableObject {
         try? data.write(to: storeURL, options: .atomic)
     }
 
-    /// 把文件名和记录对齐：删掉记录里已经不存在的文件，补上目录里没登记的文件
-    func syncWithDisk() {
-        let fm = FileManager.default
-        let onDisk = (try? fm.contentsOfDirectory(atPath: booksDir.path)) ?? []
-        books.removeAll { book in
-            !onDisk.contains(book.fileName)
+    // MARK: - 扫描与归位（核心修复）
+
+    /// 扫描 App 目录，把根目录的书归位到 Books/，再和书架记录对齐
+    func scan() {
+        ensureDirs()
+        adoptLooseFiles()
+        refreshFromDisk()
+    }
+
+    /// 把 Documents 根目录（以及 Books 下）里能识别的书都收进书架
+    private func adoptLooseFiles() {
+        let rootNames = (try? fm.contentsOfDirectory(atPath: docsDir.path)) ?? []
+        for name in rootNames {
+            guard name != shelfFileName else { continue }
+            let src = docsDir.appendingPathComponent(name)
+            guard isRegularFile(src) else { continue }
+            guard BookFormat.from(fileURL: src) != nil else { continue }
+
+            let dest = uniqueDestination(preferredName: name)
+            moveOrCopy(from: src, to: dest)
         }
+    }
+
+    private func isRegularFile(_ url: URL) -> Bool {
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else { return false }
+        return isDir.boolValue == false
+    }
+
+    /// 移动失败就退化成「读进内存再写出去」
+    @discardableResult
+    private func moveOrCopy(from src: URL, to dest: URL) -> Bool {
+        if (try? fm.moveItem(at: src, to: dest)) != nil { return true }
+        if let data = try? Data(contentsOf: src) {
+            if (try? data.write(to: dest, options: .atomic)) != nil {
+                try? fm.removeItem(at: src)
+                return true
+            }
+        }
+        return false
+    }
+
+    /// 和书架记录对齐：删掉已不存在的文件，补上目录里没登记的文件
+    private func refreshFromDisk() {
+        let onDisk = (try? fm.contentsOfDirectory(atPath: booksDir.path)) ?? []
+        let existing = Set(onDisk)
+
+        books.removeAll { !existing.contains($0.fileName) }
+
         let known = Set(books.map { $0.fileName })
         for name in onDisk where known.contains(name) == false {
             let url = booksDir.appendingPathComponent(name)
-            if let format = BookFormat.from(fileURL: url) {
-                let book = makeBook(for: url, format: format, fileName: name)
-                books.append(book)
-            }
+            guard isRegularFile(url), let format = BookFormat.from(fileURL: url) else { continue }
+            books.append(makeBook(for: url, format: format, fileName: name))
         }
         save()
+    }
+
+    /// 生成不冲突的目标路径
+    private func uniqueDestination(preferredName: String) -> URL {
+        let base = (preferredName as NSString).deletingPathExtension
+        let ext = (preferredName as NSString).pathExtension
+        var name = preferredName
+        var index = 1
+        while fm.fileExists(atPath: booksDir.appendingPathComponent(name).path) {
+            name = ext.isEmpty ? "\(base)_\(index)" : "\(base)_\(index).\(ext)"
+            index += 1
+        }
+        return booksDir.appendingPathComponent(name)
     }
 
     // MARK: - 导入
 
     func importBook(from url: URL) {
-        let fm = FileManager.default
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
 
         guard let format = BookFormat.from(fileURL: url) else {
-            message = "不支持的格式：.\(url.pathExtension)"
+            let ext = url.pathExtension.isEmpty ? "无扩展名" : url.pathExtension
+            alertMessage = "暂不支持 .\(ext) 格式。\n支持：TXT / EPUB / PDF / CBZ"
             return
         }
+        ensureDirs()
 
-        let baseName = url.deletingPathExtension().lastPathComponent
-        let ext = url.pathExtension
-        var destName = "\(baseName).\(ext)"
-        var index = 1
-        while fm.fileExists(atPath: booksDir.appendingPathComponent(destName).path) {
-            destName = "\(baseName)_\(index).\(ext)"
-            index += 1
-        }
-        let destURL = booksDir.appendingPathComponent(destName)
+        let dest = uniqueDestination(preferredName: url.lastPathComponent)
 
-        do {
-            try fm.copyItem(at: url, to: destURL)
-            let book = makeBook(for: destURL, format: format, fileName: destName)
-            books.insert(book, at: 0)
-            save()
-            message = "已导入《\(book.title)》"
-        } catch {
-            message = "导入失败：\(error.localizedDescription)"
+        var ok = false
+        if (try? fm.copyItem(at: url, to: dest)) != nil { ok = true }
+
+        if ok == false, let data = try? Data(contentsOf: url) {
+            ok = (try? data.write(to: dest, options: .atomic)) != nil
         }
+
+        if ok == false {
+            // 最后用文件协调器读一次（iCloud 未下载完成的文件常见）
+            var coordError: NSError?
+            NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { readURL in
+                if let data = try? Data(contentsOf: readURL) {
+                    ok = (try? data.write(to: dest, options: .atomic)) != nil
+                }
+            }
+            if ok == false {
+                let reason = coordError?.localizedDescription ?? "文件无法读取"
+                alertMessage = "导入失败：\(reason)"
+                return
+            }
+        }
+
+        // 复制成功后统一走扫描登记，避免重复登记
+        scan()
+        _ = format
     }
 
     private func makeBook(for url: URL, format: BookFormat, fileName: String) -> Book {
@@ -111,7 +184,6 @@ final class BookshelfViewModel: ObservableObject {
         case .txt:
             if let data = try? Data(contentsOf: url), let text = TextLoader.decode(data) {
                 total = text.utf16.count
-                // 用第一行非空内容当书名，如果是章节名就保留文件名
                 let firstLine = text
                     .components(separatedBy: "\n")
                     .first { $0.trimmingCharacters(in: .whitespaces).isEmpty == false }?
@@ -133,7 +205,6 @@ final class BookshelfViewModel: ObservableObject {
                 }
             }
         case .epub:
-            // 导入时不解析全文（大部头会卡住界面），等打开阅读时再解析并回填书名
             total = 0
         case .comic:
             total = ComicLoader.listPages(url: url).count
@@ -145,7 +216,7 @@ final class BookshelfViewModel: ObservableObject {
     // MARK: - 删除 / 进度
 
     func delete(_ book: Book) {
-        try? FileManager.default.removeItem(at: book.absoluteURL)
+        try? fm.removeItem(at: book.absoluteURL)
         books.removeAll { $0.id == book.id }
         save()
     }
@@ -158,17 +229,11 @@ final class BookshelfViewModel: ObservableObject {
         save()
     }
 
-    /// EPUB 解析后补全书名 / 作者
     func updateTitle(bookID: UUID, title: String, author: String, total: Int) {
         guard let index = books.firstIndex(where: { $0.id == bookID }) else { return }
         if title.isEmpty == false { books[index].title = title }
         if author.isEmpty == false { books[index].author = author }
         if total > 0 { books[index].totalUnits = total }
         save()
-    }
-
-    /// 最近在读
-    var recentBooks: [Book] {
-        books.sorted { ($0.lastReadAt ?? .distantPast) > ($1.lastReadAt ?? .distantPast) }
     }
 }

@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 
 struct BookshelfView: View {
     @EnvironmentObject var shelf: BookshelfViewModel
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var settings = ReadingSettings()
     @State private var showImporter = false
     @State private var selectedBook: Book?
@@ -40,12 +41,17 @@ struct BookshelfView: View {
                         Image(systemName: "slider.horizontal.3")
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        shelf.scan()
+                        show("已刷新书架")
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
                     Button {
                         showImporter = true
                     } label: {
-                        Image(systemName: "plus")
-                            .fontWeight(.semibold)
+                        Image(systemName: "plus").fontWeight(.semibold)
                     }
                 }
             }
@@ -57,13 +63,23 @@ struct BookshelfView: View {
                 switch result {
                 case .success(let urls):
                     for url in urls { shelf.importBook(from: url) }
-                    if let msg = shelf.message {
-                        show(msg)
-                        shelf.message = nil
+                    if let msg = shelf.alertMessage {
+                        shelf.alertMessage = nil
+                        show("导入失败：\(msg)")
+                    } else {
+                        show("已导入 \(urls.count) 个文件")
                     }
                 case .failure(let error):
                     show("选择文件失败：\(error.localizedDescription)")
                 }
+            }
+            .alert("提示", isPresented: Binding(
+                get: { shelf.alertMessage != nil },
+                set: { if $0 == false { shelf.alertMessage = nil } }
+            )) {
+                Button("知道了", role: .cancel) {}
+            } message: {
+                Text(shelf.alertMessage ?? "")
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView(settings: settings)
@@ -71,14 +87,22 @@ struct BookshelfView: View {
             .navigationDestination(item: $selectedBook) { book in
                 ReaderView(book: book, settings: settings)
             }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { shelf.scan() }
+            }
+            .onAppear { shelf.scan() }
         }
     }
 
     private var allowedTypes: [UTType] {
-        var types: [UTType] = [.plainText, .pdf, .zip]
-        if let epub = UTType(filenameExtension: "epub") { types.append(epub) }
-        if let cbz = UTType(filenameExtension: "cbz") { types.append(cbz) }
-        types.append(.data)
+        var types: [UTType] = []
+        types.append(.item)          // 兜底：允许所有文件
+        types.append(.plainText)
+        types.append(.pdf)
+        types.append(.zip)
+        for ext in ["epub", "cbz", "txt", "azw3", "mobi"] {
+            if let t = UTType(filenameExtension: ext) { types.append(t) }
+        }
         return types
     }
 
@@ -109,21 +133,37 @@ struct BookshelfView: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
         }
+        .refreshable { shelf.scan() }
     }
 
     private var emptyState: some View {
-        VStack(spacing: 18) {
-            Image(systemName: "books.vertical")
-                .font(.system(size: 56, weight: .light))
+        ScrollView {
+            VStack(spacing: 16) {
+                Image(systemName: "books.vertical")
+                    .font(.system(size: 54, weight: .light))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 60)
+                Text("书架是空的")
+                    .font(.title3.weight(.medium))
+                Text("支持 TXT / EPUB / PDF / CBZ 漫画")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("点右上角 +，从「文件」里选书", systemImage: "plus.circle")
+                    Label("或把书放进「文件」App → 我的 iPhone → 本地阅读器", systemImage: "folder")
+                    Label("放好之后点右上角刷新按钮，或把这个 App 切到后台再回来", systemImage: "arrow.clockwise")
+                }
+                .font(.footnote)
                 .foregroundStyle(.secondary)
-            Text("书架是空的")
-                .font(.title3.weight(.medium))
-            Text("点右上角 + 从「文件」导入\n支持 TXT / EPUB / PDF / CBZ 漫画")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .lineSpacing(4)
+                .padding(.top, 10)
+                .padding(.horizontal, 8)
+            }
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 28)
         }
+        .refreshable { shelf.scan() }
     }
 
     private func show(_ text: String) {
@@ -138,9 +178,11 @@ struct BookshelfView: View {
             Spacer()
             Text(text)
                 .font(.footnote)
+                .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .background(.ultraThinMaterial, in: Capsule())
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                .padding(.horizontal, 30)
                 .padding(.bottom, 40)
         }
         .transition(.opacity)
@@ -179,7 +221,6 @@ struct BookCell: View {
                         .padding(10)
                     )
 
-                // 底部进度条
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule().fill(.white.opacity(0.25))
