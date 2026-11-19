@@ -17,6 +17,8 @@ final class SourceViewModel: ObservableObject {
     @Published var results: [SourceItem] = []
     @Published var searching = false
     @Published var errorMessage: String?
+    /// 每个源各自的失败原因，成功时也保留，方便排查
+    @Published var failures: [String] = []
 
     // 目录
     @Published var chapters: [SourceChapter] = []
@@ -44,6 +46,7 @@ final class SourceViewModel: ObservableObject {
         searching = true
         errorMessage = nil
         results = []
+        failures = []
 
         var collected: [SourceItem] = []
         var errors: [String] = []
@@ -65,7 +68,7 @@ final class SourceViewModel: ObservableObject {
                 case .success(let items):
                     collected.append(contentsOf: items)
                 case .failure(let failure):
-                    errors.append("\(sourceName)：\(failure.message)")
+                    errors.append("「\(sourceName)」\(failure.message)")
                 }
             }
         }
@@ -76,10 +79,11 @@ final class SourceViewModel: ObservableObject {
             if leftExact != rightExact { return leftExact }
             return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
+        failures = errors
         searching = false
 
         if collected.isEmpty {
-            errorMessage = errors.isEmpty ? "没搜到结果" : errors.joined(separator: "\n")
+            errorMessage = errors.isEmpty ? "所有源都没搜到这条，换个关键词试试" : nil
         }
     }
 

@@ -19,6 +19,11 @@ final class SourceStore: ObservableObject {
             .appendingPathComponent("sources.json")
     }
 
+    private var backupURL: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("sources.backup.json")
+    }
+
     init() {
         load()
     }
@@ -29,21 +34,89 @@ final class SourceStore: ObservableObject {
 
     // MARK: - 持久化
 
+    /// 读：永远不因为读不出来就清空用户的书源
     func load() {
-        guard let data = try? Data(contentsOf: storeURL),
-              let decoded = try? JSONDecoder().decode([BookSource].self, from: data) else {
-            sources = [SourceStore.seedTemplate]
+        let manager = FileManager.default
+
+        if let decoded = SourceStore.decodeTolerant(storeURL) {
+            sources = decoded
+            return
+        }
+
+        // 主文件没有或者读坏了，先试备份
+        if let decoded = SourceStore.decodeTolerant(backupURL) {
+            sources = decoded
+            lastError = "书源主文件读取失败，已用备份恢复（\(decoded.count) 条）"
             save()
             return
         }
-        sources = decoded
+
+        if manager.fileExists(atPath: storeURL.path) {
+            // 文件在，但一条都读不出来：保留文件，不清空、不覆盖
+            sources = []
+            lastError = "书源文件读不出来，已保留原文件未覆盖。可以到「书源管理」重新导入。"
+            return
+        }
+
+        // 真正的首次启动
+        sources = [SourceStore.seedTemplate]
+        save()
+    }
+
+    /// 宽容解码：整份失败就逐条解，坏的那条跳过，别牵连其他书源
+    nonisolated static func decodeTolerant(_ url: URL) -> [BookSource]? {
+        guard let data = try? Data(contentsOf: url), data.isEmpty == false else { return nil }
+
+        if let list = try? JSONDecoder().decode([BookSource].self, from: data) {
+            return list
+        }
+        guard let raw = try? JSONSerialization.jsonObject(with: data) as? [Any] else { return nil }
+
+        var output: [BookSource] = []
+        for item in raw {
+            guard let itemData = try? JSONSerialization.data(withJSONObject: item) else { continue }
+            if let source = try? JSONDecoder().decode(BookSource.self, from: itemData) {
+                output.append(source)
+            }
+        }
+        return output
     }
 
     private func save() {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
-        guard let data = try? encoder.encode(sources) else { return }
-        try? data.write(to: storeURL, options: .atomic)
+        guard let data = try? encoder.encode(sources) else {
+            lastError = "书源序列化失败，这次改动可能没存上"
+            return
+        }
+
+        // 旧文件先留一份备份，再写新的
+        if let old = try? Data(contentsOf: storeURL), old.isEmpty == false {
+            try? old.write(to: backupURL, options: .atomic)
+        }
+
+        do {
+            try data.write(to: storeURL, options: .atomic)
+        } catch {
+            lastError = "书源写入失败：\(error.localizedDescription)"
+            return
+        }
+
+        // 写完立刻读回来验一遍，确认下一次启动不会读不出来
+        if let readBack = SourceStore.decodeTolerant(storeURL), readBack.count == sources.count {
+            lastError = nil
+        } else {
+            lastError = "书源写入后校验不通过（\(sources.count) 条），下一次启动可能读不到"
+        }
+    }
+
+    /// 导出：把当前全部书源吐成 JSON，方便换机 / 重装后恢复
+    func exportJSON() -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
+        guard let data = try? encoder.encode(sources),
+              let text = String(data: data, encoding: .utf8) else { return "[]" }
+        return text
     }
 
     // MARK: - 增删改
@@ -84,82 +157,136 @@ final class SourceStore: ObservableObject {
 
     // MARK: - 导入
 
-    /// 返回 nil 表示成功
-    func importText(_ text: String) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.isEmpty == false else { return "内容为空" }
-
-        if LegadoBridge.looksLikeLegado(trimmed) {
-            return importLegado(trimmed)
-        }
-
-        do {
-            let imported = try SourceStore.decodeSources(trimmed)
-            guard imported.isEmpty == false else { return "没有解析到任何书源" }
-
-            // 先校验，不合格的不入库，并把原因原样告诉用户
-            var accepted: [BookSource] = []
-            var rejected: [String] = []
-            for source in imported {
-                let problems = SourceStore.problems(for: source)
-                if problems.isEmpty {
-                    accepted.append(source)
-                } else {
-                    rejected.append("「\(source.name)」：\(problems.joined(separator: "、"))")
-                }
-            }
-
-            if accepted.isEmpty {
-                return "没有可用的书源，未导入。\n" + rejected.joined(separator: "\n")
-            }
-
-            sources.append(contentsOf: accepted)
-            save()
-
-            if rejected.isEmpty { return nil }
-            return "已导入 \(accepted.count) 个，跳过 \(rejected.count) 个：\n" + rejected.joined(separator: "\n")
-        } catch {
-            return (error as? LocalizedError)?.errorDescription ?? "JSON 格式不对：\(error.localizedDescription)"
-        }
+    struct ImportReport {
+        var title: String
+        var lines: [String]
     }
 
-    /// Legado（阅读）格式：自动转换后导入
-    private func importLegado(_ text: String) -> String? {
-        do {
-            let (converted, notes) = try LegadoBridge.convert(text)
-            guard converted.isEmpty == false else {
-                var lines = ["这份 Legado 书源里没有能用的条目，未导入。"]
-                lines.append(contentsOf: notes)
-                return lines.joined(separator: "\n")
-            }
+    struct ParseResult: @unchecked Sendable {
+        var isLegado = false
+        var sources: [BookSource] = []
+        var notes: [String] = []
+        var error: String?
+    }
 
-            sources.append(contentsOf: converted)
+    nonisolated static func parseImport(_ text: String) -> ParseResult {
+        var result = ParseResult()
+
+        if LegadoBridge.looksLikeLegado(text) {
+            result.isLegado = true
+            do {
+                let converted = try LegadoBridge.convert(text)
+                result.sources = converted.sources
+                result.notes = converted.notes
+            } catch {
+                result.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+            return result
+        }
+
+        do {
+            result.sources = try SourceStore.decodeSources(text)
+        } catch {
+            result.error = (error as? LocalizedError)?.errorDescription ?? "JSON 格式不对：\(error.localizedDescription)"
+        }
+        return result
+    }
+
+    /// 导入（解析放到后台，避免大 JSON 卡住界面）
+    func importPayload(_ text: String) async -> ImportReport {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else {
+            return ImportReport(title: "没有内容", lines: ["粘贴框是空的"])
+        }
+
+        let parsed = await Task.detached(priority: .userInitiated) { () -> ParseResult in
+            SourceStore.parseImport(trimmed)
+        }.value
+
+        return applyImport(parsed)
+    }
+
+    func importFilePayload(at url: URL) async -> ImportReport {
+        guard let data = try? Data(contentsOf: url) else {
+            return ImportReport(title: "读不出来", lines: ["文件打不开，换个位置再试"])
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            return ImportReport(title: "读不出来", lines: ["文件不是 UTF-8 文本"])
+        }
+        return await importPayload(text)
+    }
+
+    @discardableResult
+    func applyImport(_ parsed: ParseResult) -> ImportReport {
+        if let error = parsed.error {
+            return ImportReport(title: "导入失败", lines: [error])
+        }
+
+        guard parsed.sources.isEmpty == false else {
+            var lines = ["没有解析到可用的书源"]
+            lines.append(contentsOf: parsed.notes)
+            return ImportReport(title: "没有导入成功", lines: lines)
+        }
+
+        if parsed.isLegado {
+            sources.append(contentsOf: parsed.sources)
             save()
 
-            let novelCount = converted.filter { $0.type == .novel }.count
-            let comicCount = converted.filter { $0.type == .comic }.count
+            let novelCount = parsed.sources.filter { $0.type == .novel }.count
+            let comicCount = parsed.sources.filter { $0.type == .comic }.count
 
-            var lines: [String] = [
-                "已识别 Legado 格式，转换并导入 \(converted.count) 条（小说 \(novelCount) / 漫画 \(comicCount)），已启用。"
-            ]
-            for source in converted {
+            var lines: [String] = ["小说 \(novelCount) 条、漫画 \(comicCount) 条，已启用。"]
+            for source in parsed.sources {
                 let problems = SourceStore.problems(for: source)
                 if problems.isEmpty == false {
                     lines.append("「\(source.name)」还缺：\(problems.joined(separator: "、"))")
                 }
             }
-            lines.append(contentsOf: notes)
-            lines.append("搜不到就进书源管理，选那条源，按「搜索 → 目录 → 正文」逐级测。")
-            return lines.joined(separator: "\n")
-        } catch {
-            return (error as? LocalizedError)?.errorDescription ?? "转换失败：\(error.localizedDescription)"
+            lines.append(contentsOf: parsed.notes)
+            if let error = lastError { lines.append("⚠︎ \(error)") }
+            return ImportReport(title: "已导入 \(parsed.sources.count) 条 Legado 书源", lines: lines)
         }
+
+        // 本 App 格式：规则不全的不入库，把缺什么原样列出来
+        var accepted: [BookSource] = []
+        var rejected: [String] = []
+        for source in parsed.sources {
+            let problems = SourceStore.problems(for: source)
+            if problems.isEmpty {
+                accepted.append(source)
+            } else {
+                rejected.append("「\(source.name)」：\(problems.joined(separator: "、"))")
+            }
+        }
+
+        guard accepted.isEmpty == false else {
+            var lines = ["规则不完整，一条都没导入。"]
+            lines.append(contentsOf: rejected)
+            return ImportReport(title: "没有导入成功", lines: lines)
+        }
+
+        sources.append(contentsOf: accepted)
+        save()
+
+        var lines = rejected
+        if let error = lastError { lines.append("⚠︎ \(error)") }
+        return ImportReport(title: "已导入 \(accepted.count) 条", lines: lines)
     }
 
     func importFile(at url: URL) -> String? {
         guard let data = try? Data(contentsOf: url) else { return "文件读不出来" }
         guard let text = String(data: data, encoding: .utf8) else { return "文件不是 UTF-8 文本" }
-        return importText(text)
+        let report = applyImport(SourceStore.parseImport(text))
+        return ([report.title] + report.lines).joined(separator: "\n")
+    }
+
+    /// 保留给旧调用点
+    func importText(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else { return "内容为空" }
+        let report = applyImport(SourceStore.parseImport(trimmed))
+        if report.lines.isEmpty { return nil }
+        return ([report.title] + report.lines).joined(separator: "\n")
     }
 
     /// 从网络地址拉一个书源 JSON
@@ -179,7 +306,7 @@ final class SourceStore: ObservableObject {
 
     // MARK: - 解析
 
-    static func decodeSources(_ text: String) throws -> [BookSource] {
+    nonisolated static func decodeSources(_ text: String) throws -> [BookSource] {
         guard let data = text.data(using: .utf8) else {
             throw SourceFailure(message: "内容不是文本")
         }
@@ -204,7 +331,7 @@ final class SourceStore: ObservableObject {
     }
 
     /// 识别「阅读 / Legado」书源，返回给用户看的说明
-    static func detectLegado(_ object: Any) -> String? {
+    nonisolated static func detectLegado(_ object: Any) -> String? {
         let keys = ["ruleSearch", "bookSourceUrl", "bookSourceName", "searchUrl", "ruleToc", "ruleBookInfo", "ruleContent"]
         var found = false
 
@@ -228,7 +355,7 @@ final class SourceStore: ObservableObject {
     }
 
     /// 缺什么就列什么，导入和列表都用它
-    static func problems(for source: BookSource) -> [String] {
+    nonisolated static func problems(for source: BookSource) -> [String] {
         var problems: [String] = []
 
         if source.name.trimmingCharacters(in: .whitespaces).isEmpty { problems.append("缺名字") }
@@ -267,7 +394,7 @@ final class SourceStore: ObservableObject {
     var novelSources: [BookSource] { sources.filter { $0.type == .novel } }
     var comicSources: [BookSource] { sources.filter { $0.type == .comic } }
 
-    static func decodeSource(_ text: String) throws -> BookSource {
+    nonisolated static func decodeSource(_ text: String) throws -> BookSource {
         // 编辑器里直接粘一条 Legado 书源也能测
         if LegadoBridge.looksLikeLegado(text) {
             let (sources, _) = try LegadoBridge.convert(text)

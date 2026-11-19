@@ -47,6 +47,14 @@ struct SourceSearchView: View {
         return enabled.filter { $0.type == type }
     }
 
+    /// 开着但规则不完整、没参与搜索的源
+    private var incompleteNotes: [String] {
+        store.sources
+            .filter { $0.enabled && (filter.type == nil || $0.type == filter.type) }
+            .filter { $0.baseUrl.isEmpty || $0.search.list.isEmpty }
+            .map { "「\($0.name)」规则不完整（\(SourceStore.problems(for: $0).joined(separator: "、"))），没参与搜索" }
+    }
+
     var body: some View {
         NavigationStack {
             content
@@ -156,6 +164,20 @@ struct SourceSearchView: View {
                         .padding(.horizontal, 30)
                 }
 
+                if incompleteNotes.isEmpty == false {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(incompleteNotes.enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.orange)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(12)
+                    .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                    .padding(.horizontal, 20)
+                }
+
                 if let error = vm.errorMessage {
                     Text(error)
                         .font(.caption)
@@ -180,6 +202,30 @@ struct SourceSearchView: View {
                     Text(error)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            if vm.failures.isEmpty == false || incompleteNotes.isEmpty == false {
+                Section {
+                    ForEach(Array(vm.failures.enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.orange)
+                            .textSelection(.enabled)
+                    }
+                    ForEach(Array(incompleteNotes.enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    Button {
+                        showManager = true
+                    } label: {
+                        Label("去书源管理检查", systemImage: "globe")
+                            .font(.caption)
+                    }
+                } header: {
+                    Text("没出结果的源")
                 }
             }
 

@@ -19,10 +19,21 @@ struct SourceManagerView: View {
     @State private var editing: BookSource?
     @State private var showDoc = false
     @State private var alertText: String?
+    @State private var importing = false
+    @State private var pendingReport: SourceStore.ImportReport?
+    @State private var report: SourceStore.ImportReport?
+    @State private var showExport = false
 
     var body: some View {
         NavigationStack {
             List {
+                if let error = store.lastError {
+                    Section {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
                 Section {
                     if store.novelSources.isEmpty {
                         Text("还没有小说源")
@@ -88,18 +99,44 @@ struct SourceManagerView: View {
             .navigationTitle("书源")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        Button {
+                            UIPasteboard.general.string = store.exportJSON()
+                            alertText = "全部书源 JSON 已复制（\(store.sources.count) 条），可以保存到备忘录或发给自己。"
+                        } label: {
+                            Label("复制全部书源 JSON", systemImage: "doc.on.doc")
+                        }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("关闭") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showPicker) {
+            .sheet(isPresented: $showPicker, onDismiss: {
+                if let pendingReport {
+                    report = pendingReport
+                    self.pendingReport = nil
+                }
+            }) {
                 DocumentPicker(contentTypes: [.json, .plainText, .item], allowsMultiple: false) { urls in
                     showPicker = false
                     guard let url = urls.first else { return }
-                    alertText = store.importFile(at: url) ?? "已导入"
+                    Task {
+                        importing = true
+                        pendingReport = await store.importFilePayload(at: url)
+                        importing = false
+                    }
                 }
             }
-            .sheet(isPresented: $showPaste) {
+            .sheet(isPresented: $showPaste, onDismiss: {
+                if let pendingReport {
+                    report = pendingReport
+                    self.pendingReport = nil
+                }
+            }) {
                 pasteSheet
             }
             .sheet(isPresented: $showDoc) {
@@ -107,6 +144,14 @@ struct SourceManagerView: View {
             }
             .sheet(item: $editing) { source in
                 SourceEditorView(source: source, store: store)
+            }
+            .sheet(isPresented: Binding(
+                get: { report != nil },
+                set: { if $0 == false { report = nil } }
+            )) {
+                if let report {
+                    reportSheet(report)
+                }
             }
             .alert("书源", isPresented: Binding(
                 get: { alertText != nil },
@@ -117,6 +162,37 @@ struct SourceManagerView: View {
                 Text(alertText ?? "")
             }
         }
+    }
+
+    private func reportSheet(_ report: SourceStore.ImportReport) -> some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(report.lines.enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                            .font(.system(size: 12))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    Text("书源已存进本地文件，下次打开还在。要换机就点左上角导出，复制 JSON 存起来。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 8)
+                }
+                .padding(16)
+            }
+            .navigationTitle(report.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("知道了") { report_clear() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func report_clear() {
+        report = nil
     }
 
     private func row(_ source: BookSource) -> some View {
@@ -182,18 +258,24 @@ struct SourceManagerView: View {
                     .padding(.horizontal, 16)
 
                 Button {
-                    if let error = store.importText(pasteText) {
-                        alertText = error
-                    } else {
+                    let text = pasteText
+                    importing = true
+                    Task {
+                        let result = await store.importPayload(text)
+                        importing = false
+                        pendingReport = result
                         pasteText = ""
                         showPaste = false
                     }
                 } label: {
-                    Text("导入")
-                        .frame(maxWidth: .infinity)
+                    HStack(spacing: 8) {
+                        if importing { ProgressView().scaleEffect(0.8) }
+                        Text(importing ? "正在解析…" : "导入")
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(pasteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(importing || pasteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
             }
