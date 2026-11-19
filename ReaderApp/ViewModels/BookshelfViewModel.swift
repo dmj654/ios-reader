@@ -18,6 +18,7 @@ final class BookshelfViewModel: ObservableObject {
 
     @Published var books: [Book] = []
     @Published var alertMessage: String?
+    @Published var bookmarks: [Bookmark] = []
 
     private let fm = FileManager.default
     private let storeURL: URL
@@ -38,6 +39,7 @@ final class BookshelfViewModel: ObservableObject {
         storeURL = docs.appendingPathComponent("bookshelf.json")
         ensureDirs()
         load()
+        loadBookmarks()
         scan()
     }
 
@@ -256,5 +258,53 @@ final class BookshelfViewModel: ObservableObject {
         if author.isEmpty == false { books[index].author = author }
         if total > 0 { books[index].totalUnits = total }
         save()
+    }
+}
+
+// MARK: - 书签
+
+extension BookshelfViewModel {
+
+    private var bookmarksURL: URL {
+        docsDir.appendingPathComponent("bookmarks.json")
+    }
+
+    func loadBookmarks() {
+        guard let data = try? Data(contentsOf: bookmarksURL),
+              let decoded = try? JSONDecoder().decode([Bookmark].self, from: data) else {
+            bookmarks = []
+            return
+        }
+        bookmarks = decoded
+    }
+
+    private func saveBookmarks() {
+        guard let data = try? JSONEncoder().encode(bookmarks) else { return }
+        try? data.write(to: bookmarksURL, options: .atomic)
+    }
+
+    func bookmarks(for bookID: UUID) -> [Bookmark] {
+        bookmarks
+            .filter { $0.bookID == bookID }
+            .sorted { $0.offset < $1.offset }
+    }
+
+    func isBookmarked(bookID: UUID, offset: Int) -> Bool {
+        bookmarks.contains { $0.bookID == bookID && $0.offset == offset }
+    }
+
+    /// 同一个位置再点一次就是取消
+    func toggleBookmark(bookID: UUID, offset: Int, chapter: String, snippet: String) {
+        if let index = bookmarks.firstIndex(where: { $0.bookID == bookID && $0.offset == offset }) {
+            bookmarks.remove(at: index)
+        } else {
+            bookmarks.append(Bookmark(bookID: bookID, offset: offset, chapter: chapter, snippet: snippet))
+        }
+        saveBookmarks()
+    }
+
+    func removeBookmark(_ bookmark: Bookmark) {
+        bookmarks.removeAll { $0.id == bookmark.id }
+        saveBookmarks()
     }
 }

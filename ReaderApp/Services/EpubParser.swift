@@ -6,11 +6,14 @@
 //
 
 import Foundation
+import UIKit
+import ImageIO
 import ZIPFoundation
 
 enum EpubParser {
 
-    static func load(url: URL) -> BookText? {
+    /// imageDir 不为空时，把章节里的插图解出来存进去，并记录每张图在章内的位置
+    static func load(url: URL, imageDir: URL? = nil) -> BookText? {
         guard let archive = Archive(url: url, accessMode: .read) else { return nil }
 
         // 1. 读 container.xml，找到 opf 路径
@@ -25,10 +28,15 @@ enum EpubParser {
         // 2. 按 spine 顺序读每一章
         let opfDir = (opfPath as NSString).deletingLastPathComponent
         var chapters: [Chapter] = []
+        var imageCounter = 0
+
+        if let imageDir {
+            try? FileManager.default.createDirectory(at: imageDir, withIntermediateDirectories: true)
+        }
 
         for ref in opf.spine {
             guard let meta = opf.manifest[ref] else { continue }
-            // 只看文字内容，图片/字体跳过
+            // 只看文字内容，字体等跳过
             let type = meta.mediaType
             guard type.contains("html") || type.contains("xml") else { continue }
 
@@ -36,11 +44,24 @@ enum EpubParser {
             guard let data = read(entryPath: entryPath, from: archive) else { continue }
 
             let raw = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .utf16) ?? ""
-            let plain = htmlToPlainText(raw)
-            guard plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else { continue }
+            guard raw.isEmpty == false else { continue }
 
             let title = extractTitle(html: raw) ?? "第 \(chapters.count + 1) 节"
-            chapters.append(Chapter(title: title, text: plain))
+            let htmlDir = (entryPath as NSString).deletingLastPathComponent
+
+            let parsed = htmlToTextWithImages(
+                raw,
+                archive: archive,
+                baseDir: htmlDir,
+                imageDir: imageDir,
+                nextIndex: &imageCounter
+            )
+
+            let plain = parsed.text
+            guard plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                    || parsed.images.isEmpty == false else { continue }
+
+            chapters.append(Chapter(title: title, text: plain, images: parsed.images))
         }
 
         guard chapters.isEmpty == false else { return nil }
@@ -115,6 +136,103 @@ enum EpubParser {
         text = text.replacingOccurrences(of: "[ \\t]+", with: " ", options: .regularExpression)
         text = text.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - HTML → 文本 + 插图
+
+    private static let marker = "\u{FFFC}"
+
+    /// 把 <img> 换成占位符 → 文本化 → 按顺序把图存盘，记录章内偏移
+    private static func htmlToTextWithImages(
+        _ html: String,
+        archive: Archive,
+        baseDir: String,
+        imageDir: URL?,
+        nextIndex: inout Int
+    ) -> (text: String, images: [ChapterImage]) {
+
+        var srcs: [String] = []
+        var marked = html
+
+        if let regex = try? NSRegularExpression(pattern: "(?is)<img[^>]*src\\s*=\\s*(\"[^\"]*\"|'[^']*')[^>]*>") {
+            let ns = html as NSString
+            let range = NSRange(location: 0, length: ns.length)
+            for match in regex.matches(in: html, range: range) where match.numberOfRanges > 1 {
+                let raw = ns.substring(with: match.range(at: 1))
+                let cleaned = raw
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if cleaned.isEmpty == false { srcs.append(cleaned) }
+            }
+            marked = regex.stringByReplacingMatches(in: html, range: range, withTemplate: marker)
+        }
+
+        var plain = htmlToPlainText(marked)
+
+        guard plain.contains(marker), let imageDir, srcs.isEmpty == false else {
+            plain = plain.replacingOccurrences(of: marker, with: "")
+            return (plain, [])
+        }
+
+        var output = ""
+        var outputLength = 0          // 已写入文本的 UTF-16 长度
+        var imageCursor = 0
+        var images: [ChapterImage] = []
+
+        for character in plain {
+            if character == "\u{FFFC}" {
+                let index = imageCursor
+                imageCursor += 1
+                guard index < srcs.count else { continue }
+
+                let entryPath = resolve(path: srcs[index], base: baseDir)
+                guard let data = read(entryPath: entryPath, from: archive),
+                      let size = pixelSize(of: data),
+                      size.width >= 300 || size.height >= 300 else { continue }
+
+                nextIndex += 1
+                let fileName = String(format: "img_%04d.jpg", nextIndex)
+                let target = imageDir.appendingPathComponent(fileName)
+                guard saveImage(data: data, to: target) else { continue }
+
+                images.append(ChapterImage(offset: outputLength, file: fileName))
+                continue
+            }
+
+            output.append(character)
+            outputLength += String(character).utf16.count
+        }
+
+        return (output, images)
+    }
+
+    private static func pixelSize(of data: Data) -> CGSize? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = props[kCGImagePropertyPixelWidth] as? Double,
+              let height = props[kCGImagePropertyPixelHeight] as? Double else { return nil }
+        return CGSize(width: width, height: height)
+    }
+
+    /// 统一转 JPEG 落盘，超大的图先缩到 2400 以内
+    private static func saveImage(data: Data, to url: URL) -> Bool {
+        guard let source = UIImage(data: data) else { return false }
+
+        var image = source
+        let maxPixel: CGFloat = 2400
+        if max(source.size.width, source.size.height) > maxPixel {
+            let scale = maxPixel / max(source.size.width, source.size.height)
+            let target = CGSize(width: source.size.width * scale, height: source.size.height * scale)
+            let renderer = UIGraphicsImageRenderer(size: target)
+            image = renderer.image { _ in
+                source.draw(in: CGRect(origin: .zero, size: target))
+            }
+        }
+
+        if let jpeg = image.jpegData(compressionQuality: 0.85) {
+            return (try? jpeg.write(to: url, options: .atomic)) != nil
+        }
+        return (try? data.write(to: url, options: .atomic)) != nil
     }
 
     /// 从 html 里猜章节标题
