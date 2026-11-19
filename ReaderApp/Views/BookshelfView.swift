@@ -29,8 +29,10 @@ struct BookshelfView: View {
     @EnvironmentObject var shelf: BookshelfViewModel
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var settings = ReadingSettings()
+    @StateObject private var sources = SourceStore()
 
     @State private var showPicker = false
+    @State private var showSources = false
     @State private var selectedBook: Book?
     @State private var showSettings = false
     @State private var toast: String?
@@ -65,6 +67,11 @@ struct BookshelfView: View {
                     }
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        showSources = true
+                    } label: {
+                        Image(systemName: "globe")
+                    }
                     Button {
                         showSettings = true
                     } label: {
@@ -101,6 +108,14 @@ struct BookshelfView: View {
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView(settings: settings)
+            }
+            .sheet(isPresented: $showSources) {
+                SourceSearchView(shelf: shelf, store: sources) { book in
+                    showSources = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        selectedBook = book
+                    }
+                }
             }
             .navigationDestination(item: $selectedBook) { book in
                 ReaderView(book: book, settings: settings)
@@ -249,6 +264,7 @@ struct BookshelfView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("点右上角 +，从「文件」里选书", systemImage: "plus.circle")
                     Label("或放进「文件」→ 我的 iPhone → 本地阅读器", systemImage: "folder")
+                    Label("点地球按钮，用书源在线找书后下载到本地", systemImage: "globe")
                 }
                 .font(.footnote)
                 .foregroundStyle(.secondary)
