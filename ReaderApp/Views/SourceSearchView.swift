@@ -7,6 +7,28 @@
 
 import SwiftUI
 
+enum SourceFilter: String, CaseIterable, Identifiable {
+    case all, novel, comic
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "全部"
+        case .novel: return "小说"
+        case .comic: return "漫画"
+        }
+    }
+
+    var type: SourceType? {
+        switch self {
+        case .all: return nil
+        case .novel: return .novel
+        case .comic: return .comic
+        }
+    }
+}
+
 struct SourceSearchView: View {
     @ObservedObject var shelf: BookshelfViewModel
     @ObservedObject var store: SourceStore
@@ -16,10 +38,21 @@ struct SourceSearchView: View {
     @StateObject private var vm = SourceViewModel()
     @State private var showManager = false
     @State private var selected: SourceItem?
+    @State private var filter: SourceFilter = .all
+
+    /// 当前分类下真正能用的源
+    private var activeSources: [BookSource] {
+        let enabled = store.enabledSources
+        guard let type = filter.type else { return enabled }
+        return enabled.filter { $0.type == type }
+    }
 
     var body: some View {
         NavigationStack {
             content
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    filterBar
+                }
                 .navigationTitle("找书")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -37,10 +70,14 @@ struct SourceSearchView: View {
                 .searchable(
                     text: $vm.keyword,
                     placement: .navigationBarDrawer(displayMode: .always),
-                    prompt: "书名 / 作者，回车搜索"
+                    prompt: filter == .comic ? "漫画名 / 作者，回车搜索" : "书名 / 作者，回车搜索"
                 )
                 .onSubmit(of: .search) {
-                    Task { await vm.search(store: store) }
+                    Task { await vm.search(sources: activeSources) }
+                }
+                .onChange(of: filter) { _, _ in
+                    vm.results = []
+                    vm.errorMessage = nil
                 }
                 .sheet(isPresented: $showManager) {
                     SourceManagerView(store: store)
@@ -59,12 +96,24 @@ struct SourceSearchView: View {
         }
     }
 
+    private var filterBar: some View {
+        Picker("", selection: $filter) {
+            ForEach(SourceFilter.allCases) { item in
+                Text(item.title).tag(item)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.bar)
+    }
+
     @ViewBuilder
     private var content: some View {
         if vm.searching {
             VStack(spacing: 12) {
                 ProgressView()
-                Text("正在搜索 \(store.enabledSources.count) 个书源…")
+                Text("正在搜索 \(activeSources.count) 个\(filter == .all ? "" : filter.title + "源")…")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -79,23 +128,28 @@ struct SourceSearchView: View {
     private var placeholder: some View {
         ScrollView {
             VStack(spacing: 14) {
-                Image(systemName: "magnifyingglass")
+                Image(systemName: filter == .comic ? "photo.on.rectangle" : "magnifyingglass")
                     .font(.system(size: 42, weight: .light))
                     .foregroundStyle(.secondary)
-                    .padding(.top, 60)
+                    .padding(.top, 50)
 
                 Text("输入书名或作者后回车")
                     .font(.title3.weight(.medium))
 
-                if store.enabledSources.isEmpty {
-                    Text("现在没有启用的书源")
+                if activeSources.isEmpty {
+                    Text(filter == .comic ? "现在没有启用的漫画源" : "现在没有启用的小说源")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     Button("打开书源管理") { showManager = true }
                         .buttonStyle(.borderedProminent)
                         .padding(.top, 6)
+                    Text("小说源和漫画源是分开管的，别把漫画源的规则填在小说源里。")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 30)
                 } else {
-                    Text("会用 \(store.enabledSources.map(\.name).joined(separator: "、")) 去搜")
+                    Text("会用 \(activeSources.map(\.name).joined(separator: "、")) 去搜")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)

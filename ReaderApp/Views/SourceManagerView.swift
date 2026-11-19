@@ -2,7 +2,7 @@
 //  SourceManagerView.swift
 //  ReaderApp
 //
-//  书源管理：启用开关、编辑规则、粘贴/文件/网址导入、格式说明
+//  书源管理：小说源 / 漫画源分开管，可新建、编辑规则、导入、逐级诊断
 //
 
 import SwiftUI
@@ -24,52 +24,43 @@ struct SourceManagerView: View {
         NavigationStack {
             List {
                 Section {
-                    if store.sources.isEmpty {
-                        Text("还没有书源")
+                    if store.novelSources.isEmpty {
+                        Text("还没有小说源")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
-
-                    ForEach(store.sources) { source in
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(source.name)
-                                    .font(.system(size: 15, weight: .medium))
-                                    .lineLimit(1)
-                                Text("\(source.type.title) · \(source.baseUrl.isEmpty ? "未填地址" : source.baseUrl)")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                            .onTapGesture { editing = source }
-
-                            Toggle("", isOn: Binding(
-                                get: { source.enabled },
-                                set: { store.setEnabled(source, enabled: $0) }
-                            ))
-                            .labelsHidden()
-                        }
-                        .padding(.vertical, 2)
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) {
-                                store.remove(source)
-                            } label: {
-                                Label("删除", systemImage: "trash")
-                            }
-                            Button {
-                                editing = source
-                            } label: {
-                                Label("编辑", systemImage: "pencil")
-                            }
-                            .tint(.blue)
-                        }
+                    ForEach(store.novelSources) { source in
+                        row(source)
+                    }
+                    Button {
+                        editing = store.addTemplate(.novel)
+                    } label: {
+                        Label("新建小说源", systemImage: "plus")
                     }
                 } header: {
-                    Text("书源（点名称可编辑规则）")
+                    Text("小说源 · \(store.novelSources.count)")
                 } footer: {
-                    Text("只有打开开关、且填了地址和搜索规则的书源才会参与搜索。")
+                    Text("只参与小说搜索，关注册后下载成 TXT。")
+                }
+
+                Section {
+                    if store.comicSources.isEmpty {
+                        Text("还没有漫画源")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(store.comicSources) { source in
+                        row(source)
+                    }
+                    Button {
+                        editing = store.addTemplate(.comic)
+                    } label: {
+                        Label("新建漫画源", systemImage: "plus")
+                    }
+                } header: {
+                    Text("漫画源 · \(store.comicSources.count)")
+                } footer: {
+                    Text("只参与漫画搜索，下下来打包成 CBZ。")
                 }
 
                 Section {
@@ -78,20 +69,20 @@ struct SourceManagerView: View {
                     } label: {
                         Label("粘贴 JSON 导入", systemImage: "doc.on.clipboard")
                     }
-
                     Button {
                         showPicker = true
                     } label: {
                         Label("从文件导入 .json", systemImage: "folder")
                     }
-
                     Button {
                         showDoc = true
                     } label: {
                         Label("规则怎么写", systemImage: "questionmark.circle")
                     }
                 } header: {
-                    Text("添加")
+                    Text("导入")
+                } footer: {
+                    Text("导入时会先检查规则是否完整，缺字段的书源会被挡下来并告诉你缺什么。")
                 }
             }
             .navigationTitle("书源")
@@ -105,11 +96,7 @@ struct SourceManagerView: View {
                 DocumentPicker(contentTypes: [.json, .plainText, .item], allowsMultiple: false) { urls in
                     showPicker = false
                     guard let url = urls.first else { return }
-                    if let error = store.importFile(at: url) {
-                        alertText = error
-                    } else {
-                        alertText = "已导入"
-                    }
+                    alertText = store.importFile(at: url) ?? "已导入"
                 }
             }
             .sheet(isPresented: $showPaste) {
@@ -121,7 +108,7 @@ struct SourceManagerView: View {
             .sheet(item: $editing) { source in
                 SourceEditorView(source: source, store: store)
             }
-            .alert("提示", isPresented: Binding(
+            .alert("书源", isPresented: Binding(
                 get: { alertText != nil },
                 set: { if $0 == false { alertText = nil } }
             )) {
@@ -132,10 +119,55 @@ struct SourceManagerView: View {
         }
     }
 
+    private func row(_ source: BookSource) -> some View {
+        let problems = SourceStore.problems(for: source)
+
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(source.name)
+                    .font(.system(size: 15, weight: .medium))
+                    .lineLimit(1)
+                Text(source.baseUrl.isEmpty ? "未填地址" : source.baseUrl)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                if problems.isEmpty == false {
+                    Text("缺 \(problems.joined(separator: "、"))")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture { editing = source }
+
+            Toggle("", isOn: Binding(
+                get: { source.enabled },
+                set: { store.setEnabled(source, enabled: $0) }
+            ))
+            .labelsHidden()
+        }
+        .padding(.vertical, 2)
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                store.remove(source)
+            } label: {
+                Label("删除", systemImage: "trash")
+            }
+            Button {
+                editing = source
+            } label: {
+                Label("编辑", systemImage: "pencil")
+            }
+            .tint(.blue)
+        }
+    }
+
     private var pasteSheet: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 10) {
-                Text("把书源 JSON 粘进来，单个对象或数组都行")
+                Text("粘一个书源对象，或一个书源数组都行。不是本 App 格式的会被识别并说明原因。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 16)
@@ -150,8 +182,7 @@ struct SourceManagerView: View {
                     .padding(.horizontal, 16)
 
                 Button {
-                    let error = store.importText(pasteText)
-                    if let error {
+                    if let error = store.importText(pasteText) {
                         alertText = error
                     } else {
                         pasteText = ""
@@ -184,7 +215,7 @@ struct SourceManagerView: View {
     }
 }
 
-// MARK: - 书源编辑
+// MARK: - 书源编辑 + 逐级诊断
 
 struct SourceEditorView: View {
     let source: BookSource
@@ -193,8 +224,10 @@ struct SourceEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var testKeyword = ""
-    @State private var testResult = ""
+    @State private var stage: SourceClient.DebugStage = .search
+    @State private var output: SourceClient.DebugOutput?
     @State private var testing = false
+    @State private var showHTML = false
     @State private var alertText: String?
 
     var body: some View {
@@ -210,6 +243,13 @@ struct SourceEditorView: View {
                 Divider()
 
                 VStack(alignment: .leading, spacing: 8) {
+                    Picker("诊断到哪一步", selection: $stage) {
+                        ForEach(SourceClient.DebugStage.allCases) { item in
+                            Text(item.title).tag(item)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
                     HStack(spacing: 8) {
                         TextField("测试关键词", text: $testKeyword)
                             .textFieldStyle(.roundedBorder)
@@ -225,16 +265,26 @@ struct SourceEditorView: View {
                             }
                         }
                         .buttonStyle(.bordered)
-                        .disabled(testing || testKeyword.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .disabled(testing)
                     }
 
-                    if testResult.isEmpty == false {
+                    if let output {
                         ScrollView {
-                            Text(testResult)
-                                .font(.system(size: 11))
+                            Text(output.detail)
+                                .font(.system(size: 11, design: .monospaced))
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
                         }
-                        .frame(maxHeight: 90)
+                        .frame(maxHeight: 100)
+
+                        if output.html.isEmpty == false {
+                            Button {
+                                showHTML = true
+                            } label: {
+                                Label("查看抓到的原始页面（\(output.html.count) 字）", systemImage: "doc.text.magnifyingglass")
+                                    .font(.caption)
+                            }
+                        }
                     }
                 }
                 .padding(12)
@@ -256,6 +306,11 @@ struct SourceEditorView: View {
                     .fontWeight(.semibold)
                 }
             }
+            .sheet(isPresented: $showHTML) {
+                if let output {
+                    SourceHTMLView(url: output.pageURL, html: output.html)
+                }
+            }
             .alert("保存失败", isPresented: Binding(
                 get: { alertText != nil },
                 set: { if $0 == false { alertText = nil } }
@@ -272,22 +327,75 @@ struct SourceEditorView: View {
 
     private func runTest() {
         let keyword = testKeyword.trimmingCharacters(in: .whitespaces)
+        guard keyword.isEmpty == false else {
+            alertText = "先输入一个测试关键词"
+            return
+        }
+
+        let parsed: BookSource
+        do {
+            parsed = try SourceStore.decodeSource(text)
+        } catch {
+            alertText = (error as? LocalizedError)?.errorDescription ?? "JSON 解析失败"
+            return
+        }
+
         testing = true
-        testResult = ""
+        output = nil
 
         Task {
-            do {
-                let parsed = try SourceStore.decodeSource(text)
-                let items = try await SourceClient.search(source: parsed, keyword: keyword)
-                let sample = items.prefix(3).map { "\($0.name)\($0.author.isEmpty ? "" : "（\($0.author)）")" }
-                testResult = "命中 \(items.count) 条\n" + sample.joined(separator: "\n")
-            } catch let failure as SourceFailure {
-                testResult = "失败：" + failure.message
-            } catch {
-                testResult = "失败：" + error.localizedDescription
-            }
+            output = await SourceClient.debug(source: parsed, keyword: keyword, stage: stage)
             testing = false
         }
+    }
+}
+
+// MARK: - 原始页面查看
+
+struct SourceHTMLView: View {
+    let url: String
+    let html: String
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var copied = false
+
+    private var shown: String {
+        String(html.prefix(6000))
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(url)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 8)
+
+                ScrollView([.horizontal, .vertical]) {
+                    Text(shown)
+                        .font(.system(size: 10, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(14)
+                }
+            }
+            .navigationTitle("原始页面")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(copied ? "已复制" : "复制全文") {
+                        UIPasteboard.general.string = html
+                        copied = true
+                    }
+                    .font(.caption)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.large])
     }
 }
 
@@ -322,7 +430,7 @@ struct SourceDocView: View {
                         .textSelection(.enabled)
                 } header: {
                     HStack {
-                        Text("完整模板")
+                        Text("小说源模板")
                         Spacer()
                         Button(copied ? "已复制" : "复制") {
                             UIPasteboard.general.string = BookSource.template
@@ -330,6 +438,8 @@ struct SourceDocView: View {
                         }
                         .font(.caption)
                     }
+                } footer: {
+                    Text("漫画源把 type 改成 \"comic\"，content 里把 text 换成 images，例：\"images\": \"css:#images img@src\"")
                 }
 
                 Section {
@@ -348,13 +458,11 @@ struct SourceDocView: View {
                 }
 
                 Section {
-                    Text("1. 用浏览器打开目标站点的搜索页，右键「查看源代码」，找到结果列表的容器和书名、链接所在的标签。")
-                    Text("2. 把对应选择器填进 search.list / name / link，先点「测试」确认能搜出书名。")
-                    Text("3. 再填 chapters（详情页的章节列表）和 content（章节页的正文容器），先只下「前 3 章」验证。")
-                    Text("4. 漫画源：type 填 comic，content.images 填章节页里图片列表的选择器。")
-                    Text("站点改版后规则会失效，回来改这几行就行，不用重装 App。")
+                    Text("1. 在编辑器里按「搜索 → 目录 → 正文」三步依次测，哪一步没数据就修那一步的规则。")
+                    Text("2. 每步都能「查看抓到的原始页面」，拿页面里的真实标签名去改选择器，不用猜。")
+                    Text("3. 站点改版后选择器会失效，回来改这几行就行，不用重装 App。")
                 } header: {
-                    Text("怎么调规则")
+                    Text("排查顺序")
                 } footer: {
                     Text("仅用于你自己有权访问的站点，请遵守对方站点的使用条款。")
                 }

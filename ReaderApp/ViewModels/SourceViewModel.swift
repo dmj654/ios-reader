@@ -32,13 +32,12 @@ final class SourceViewModel: ObservableObject {
 
     // MARK: - 搜索
 
-    func search(store: SourceStore) async {
+    func search(sources: [BookSource]) async {
         let text = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.isEmpty == false else { return }
 
-        let sources = store.enabledSources
         guard sources.isEmpty == false else {
-            errorMessage = "还没有可用的书源。先到「书源管理」导入或填写规则，并打开开关。"
+            errorMessage = "这个分类下没有可用的书源。先到「书源管理」新建或导入，并打开开关。"
             return
         }
 

@@ -255,6 +255,162 @@ enum SourceClient {
         }
     }
 
+    // MARK: - 逐级诊断
+
+    enum DebugStage: String, CaseIterable, Identifiable {
+        case search, chapters, content
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .search: return "搜索"
+            case .chapters: return "目录"
+            case .content: return "正文"
+            }
+        }
+    }
+
+    struct DebugOutput {
+        var detail: String
+        var html: String
+        var pageURL: String
+    }
+
+    static func debug(source: BookSource, keyword: String, stage: DebugStage) async -> DebugOutput {
+        do {
+            switch stage {
+            case .search:
+                return try await debugSearch(source: source, keyword: keyword)
+
+            case .chapters:
+                let found = try await firstItem(source: source, keyword: keyword)
+                let detailURL = RuleParser.absolutize(
+                    expand(source.chapters.url, keyword: keyword, page: 1, link: found.link, base: source.baseUrl),
+                    base: found.link
+                )
+                let html = try await fetchText(url: detailURL, source: source, method: "GET", body: nil,
+                                               referer: found.link, extraHeaders: [:])
+                guard let root = RuleParser.parseHTML(html) else {
+                    return DebugOutput(detail: "目录页解析失败", html: html, pageURL: detailURL)
+                }
+                let nodes = RuleParser.nodes(source.chapters.list, in: root, base: detailURL)
+                var lines = ["请求：\(detailURL)", "章节节点：\(nodes.count) 个"]
+                if nodes.isEmpty {
+                    lines.append("没有匹配到章节 → 检查 chapters.list")
+                } else {
+                    let names = nodes.prefix(3).compactMap {
+                        RuleParser.string(source.chapters.name, in: $0, base: detailURL)
+                    }
+                    let links = nodes.prefix(1).compactMap {
+                        RuleParser.string(source.chapters.link, in: $0, base: detailURL)
+                    }
+                    lines.append("章节示例：\(names.joined(separator: " | "))")
+                    lines.append("链接示例：\(links.first ?? "空")")
+                }
+                return DebugOutput(detail: lines.joined(separator: "\n"), html: html, pageURL: detailURL)
+
+            case .content:
+                let found = try await firstItem(source: source, keyword: keyword)
+                let detailURL = RuleParser.absolutize(
+                    expand(source.chapters.url, keyword: keyword, page: 1, link: found.link, base: source.baseUrl),
+                    base: found.link
+                )
+                let detailHTML = try await fetchText(url: detailURL, source: source, method: "GET", body: nil,
+                                                     referer: found.link, extraHeaders: [:])
+                guard let detailRoot = RuleParser.parseHTML(detailHTML),
+                      let firstNode = RuleParser.nodes(source.chapters.list, in: detailRoot, base: detailURL).first,
+                      let chapterLink = RuleParser.string(source.chapters.link, in: firstNode, base: detailURL) else {
+                    return DebugOutput(detail: "先取到目录：目录阶段没有拿到章节链接", html: detailHTML, pageURL: detailURL)
+                }
+
+                let chapterURL = RuleParser.absolutize(
+                    expand(source.content.url, keyword: keyword, page: 1, link: chapterLink, base: source.baseUrl),
+                    base: chapterLink
+                )
+                let html = try await fetchText(url: chapterURL, source: source, method: "GET", body: nil,
+                                               referer: chapterLink, extraHeaders: [:])
+
+                var lines = ["请求：\(chapterURL)"]
+
+                if source.type == .comic {
+                    guard let root = RuleParser.parseHTML(html) else {
+                        return DebugOutput(detail: "章节页解析失败", html: html, pageURL: chapterURL)
+                    }
+                    var images = RuleParser.strings(source.content.images, in: root, base: chapterURL)
+                    if images.isEmpty, source.content.images.contains("@src") {
+                        for fallback in ["@attr(data-src)", "@attr(data-original)", "@attr(data-lazy-src)"] {
+                            images = RuleParser.strings(
+                                source.content.images.replacingOccurrences(of: "@src", with: fallback),
+                                in: root,
+                                base: chapterURL
+                            )
+                            if images.isEmpty == false { break }
+                        }
+                    }
+                    lines.append("图片：\(images.count) 张")
+                    lines.append("首张：\(images.first ?? "空")")
+                } else {
+                    guard let document = try? SwiftSoup.parse(html) else {
+                        return DebugOutput(detail: "章节页解析失败", html: html, pageURL: chapterURL)
+                    }
+                    for selector in source.content.remove {
+                        let css = selector.hasPrefix("css:") ? String(selector.dropFirst(4)) : selector
+                        if let elements = try? document.select(css) {
+                            for element in elements.array() { try? element.remove() }
+                        }
+                    }
+                    let root = RuleNode.html(document)
+                    let text = RuleParser.string(source.content.text, in: root, base: chapterURL) ?? ""
+                    lines.append("正文：\(text.count) 字")
+                    lines.append("开头：\(text.prefix(60))")
+                    if text.count < 20 {
+                        lines.append("太短了 → 检查 content.text，或站点把正文放在别的容器里")
+                    }
+                }
+                return DebugOutput(detail: lines.joined(separator: "\n"), html: html, pageURL: chapterURL)
+            }
+        } catch let failure as SourceFailure {
+            return DebugOutput(detail: "失败：\(failure.message)", html: "", pageURL: "")
+        } catch {
+            return DebugOutput(detail: "失败：\(error.localizedDescription)", html: "", pageURL: "")
+        }
+    }
+
+    private static func debugSearch(source: BookSource, keyword: String) async throws -> DebugOutput {
+        let rule = source.search
+        let url = RuleParser.absolutize(
+            expand(rule.url, keyword: keyword, page: 1, link: "", base: source.baseUrl),
+            base: source.baseUrl
+        )
+        let body = rule.body.map { expand($0, keyword: keyword, page: 1, link: "", base: source.baseUrl) }
+        let html = try await fetchText(url: url, source: source, method: rule.method, body: body,
+                                       referer: source.baseUrl, extraHeaders: rule.headers)
+
+        guard let root = RuleParser.parseHTML(html) else {
+            return DebugOutput(detail: "请求：\(url)\n页面解析失败", html: html, pageURL: url)
+        }
+        let nodes = RuleParser.nodes(rule.list, in: root, base: url)
+        var lines = ["请求：\(url)", "搜索节点：\(nodes.count) 个"]
+        if nodes.isEmpty {
+            lines.append("没有匹配到列表 → 检查 search.list")
+        } else {
+            let names = nodes.prefix(3).compactMap { RuleParser.string(rule.name, in: $0, base: url) }
+            let links = nodes.prefix(1).compactMap { RuleParser.string(rule.link, in: $0, base: url) }
+            lines.append("书名示例：\(names.joined(separator: " | "))")
+            lines.append("链接示例：\(links.first ?? "空")")
+        }
+        return DebugOutput(detail: lines.joined(separator: "\n"), html: html, pageURL: url)
+    }
+
+    private static func firstItem(source: BookSource, keyword: String) async throws -> SourceItem {
+        let items = try await search(source: source, keyword: keyword)
+        guard let first = items.first else {
+            throw SourceFailure(message: "搜索没有结果，先修好搜索阶段")
+        }
+        return first
+    }
+
     // MARK: - 清理
 
     static func cleanLines(_ text: String, patterns: [String]) -> String {

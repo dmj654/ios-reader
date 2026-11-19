@@ -164,6 +164,59 @@ struct BookSource: Identifiable, Codable, Hashable {
         return text
     }
 
+    // MARK: 新建模板（模型）
+
+    static let novelTemplate = BookSource(
+        name: "新小说源",
+        type: .novel,
+        baseUrl: "",
+        search: SearchRule(
+            url: "/search.php?q={{key}}&page={{page}}",
+            list: "css:ul.book-list li",
+            name: "css:a.title@text",
+            author: "css:span.author@text",
+            cover: "css:img@src",
+            link: "css:a.title@href"
+        ),
+        chapters: ChapterRule(
+            url: "{{link}}",
+            list: "css:#chapterlist li",
+            name: "css:a@text",
+            link: "css:a@href"
+        ),
+        content: ContentRule(
+            url: "{{link}}",
+            text: "css:#content@text",
+            remove: ["css:.ad", "css:script", "css:style"],
+            removeLines: ["请记住本站", "^章节错误.*$"]
+        )
+    )
+
+    static let comicTemplate = BookSource(
+        name: "新漫画源",
+        type: .comic,
+        baseUrl: "",
+        search: SearchRule(
+            url: "/search.php?q={{key}}&page={{page}}",
+            list: "css:ul.book-list li",
+            name: "css:a.title@text",
+            author: "css:span.author@text",
+            cover: "css:img@src",
+            link: "css:a.title@href"
+        ),
+        chapters: ChapterRule(
+            url: "{{link}}",
+            list: "css:#chapterlist li",
+            name: "css:a@text",
+            link: "css:a@href"
+        ),
+        content: ContentRule(
+            url: "{{link}}",
+            text: "",
+            images: "css:#images img@src"
+        )
+    )
+
     // MARK: 示例
 
     static let template = """
