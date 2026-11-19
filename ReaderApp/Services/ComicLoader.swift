@@ -77,7 +77,26 @@ enum ComicLoader {
 
     private static func decode(path: String, in url: URL) -> UIImage? {
         guard let data = rawData(at: path, in: url) else { return nil }
-        return UIImage(data: data)
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return UIImage(data: data)
+        }
+        // 超大页降采样到 2048 以内，避免内存爆掉（缩放 4 倍也够清晰）
+        let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let pixelWidth = (props?[kCGImagePropertyPixelWidth] as? Double) ?? 0
+        let pixelHeight = (props?[kCGImagePropertyPixelHeight] as? Double) ?? 0
+        if max(pixelWidth, pixelHeight) <= 2048 {
+            return UIImage(data: data)
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: 2048
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return UIImage(data: data)
+        }
+        return UIImage(cgImage: cgImage)
     }
 
     /// 缩略图（目录网格用，降采样以免撑爆内存）

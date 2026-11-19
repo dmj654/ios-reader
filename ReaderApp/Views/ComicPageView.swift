@@ -123,14 +123,18 @@ final class ComicZoomView: UIScrollView, UIScrollViewDelegate {
         let fitAll = min(widthScale, heightScale)
 
         minScale = fitWidth ? widthScale : min(fitAll, widthScale)
+        // 关键：必须同时设置 minimumZoomScale，否则 zoomScale 会被 UIKit 夹到 1.0，导致只看到整页中间一小块
+        minimumZoomScale = minScale
         maximumZoomScale = max(minScale * 4, minScale + 0.01)
         zoomScale = minScale
-        contentSize = CGSize(width: imageSize.width * minScale, height: imageSize.height * minScale)
-        centerContent()
+
+        let displayed = CGSize(width: imageSize.width * minScale, height: imageSize.height * minScale)
+        contentSize = displayed
+        centerContent(contentSize: displayed)
         onZoomChanged?(false)
     }
 
-    private func centerContent() {
+    private func centerContent(contentSize: CGSize) {
         let offsetX = max((bounds.width - contentSize.width) / 2, 0)
         let offsetY = max((bounds.height - contentSize.height) / 2, 0)
         contentInset = UIEdgeInsets(top: offsetY, left: offsetX, bottom: offsetY, right: offsetX)
@@ -188,7 +192,7 @@ final class ComicZoomView: UIScrollView, UIScrollViewDelegate {
     }
 
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
-        centerContent()
+        centerContent(contentSize: scrollView.contentSize)
         onZoomChanged?(zoomScale > minScale + 0.03)
     }
 
