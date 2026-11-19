@@ -82,12 +82,21 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Toggle("图片铺满宽度", isOn: $settings.comicFitWidth)
-                    Toggle("从右往左翻页（日漫）", isOn: $settings.comicRTL)
+                    NavigationLink {
+                        ComicSettingsView(settings: settings)
+                    } label: {
+                        HStack {
+                            Text("漫画阅读设置")
+                            Spacer()
+                            Text(settings.comicMode.name + " · " + settings.comicFit.name)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 } header: {
                     Text("漫画")
                 } footer: {
-                    Text("铺满宽度适合竖条漫，可上下滑动看图；关闭则整页完整显示。")
+                    Text("阅读方式、适配、方向、工具栏、点按区域、裁白边、压暗、预读等都可以单独调整。")
                 }
             }
             .navigationTitle("阅读设置")

@@ -2,14 +2,13 @@
 //  ComicReaderView.swift
 //  ReaderApp
 //
-//  漫画阅读（v0.6）：
-//  - 相邻页预读，翻页基本不白屏
-//  - 双指缩放 / 双击放大 / 放大后拖动
-//  - 整页显示 或 铺满宽度 两种模式
-//  - 阅读方向可切换（左→右 / 右→左）
-//  - 缩略图页目录，直接跳页
-//  - 进度条、页码、进度记忆
-//  - 左边缘往右划退出
+//  漫画阅读（v0.7，全可配置）：
+//  - 分页翻页 / 竖向连续滚动 两种阅读方式
+//  - 适应屏幕 / 适应宽度 / 适应高度 三种适配
+//  - 左→右 / 右→左 阅读方向
+//  - 底部常驻工具条（目录 / 页码 / 翻页 / 进度线 / 设置），可常驻、可点按显隐
+//  - 点按区域、双击放大、自动裁白边、压暗、屏幕常亮、预读页数 全可调
+//  - 缩略图目录、进度记忆、左边缘右滑退出
 //
 
 import SwiftUI
@@ -23,165 +22,288 @@ struct ComicReaderView: View {
     @EnvironmentObject var shelf: BookshelfViewModel
 
     @State private var pagePaths: [String] = []
-    @State private var pageIndex: Int = 0
+    @State private var pageIndex = 0
+    @State private var visibleIndex = 0
     @State private var image: UIImage?
     @State private var isLoading = true
-    @State private var showMenu = false
+    @State private var imageLoading = false
+    @State private var chromeVisible = false
     @State private var showGrid = false
     @State private var showSettings = false
     @State private var zoomed = false
-    @State private var imageLoading = false
+    @State private var hideItem: DispatchWorkItem?
+    @State private var scrollTarget: Int?
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            settings.comicBackground.color.ignoresSafeArea()
 
             if isLoading {
-                ProgressView("正在读取漫画…")
-                    .tint(.white)
-                    .foregroundStyle(.white)
+                loadingView
             } else if pagePaths.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.largeTitle)
-                    Text("这本书里没有找到图片")
-                    Text("可能是压缩包里的图片格式不受支持")
-                        .font(.footnote)
-                        .foregroundStyle(.gray)
-                }
-                .foregroundStyle(.white)
-                .padding(40)
-                .multilineTextAlignment(.center)
+                emptyView
             } else {
-                ComicPageView(
-                    image: image,
-                    fitWidth: settings.comicFitWidth,
-                    onSingleTap: { ratio in handleTap(ratio: ratio) },
-                    onSwipeLeft: { turnTowardNext() },
-                    onSwipeRight: { turnTowardPrev() },
-                    onZoomChanged: { zoomed = $0 }
-                )
-                .ignoresSafeArea()
+                mainContent
 
-                if imageLoading {
-                    ProgressView()
-                        .tint(.white)
-                        .scaleEffect(1.2)
+                if settings.comicDim > 0.005 {
+                    Color.black
+                        .opacity(settings.comicDim)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
                 }
 
-                // 页码指示（无菜单时的一小行）
-                if showMenu == false {
-                    VStack {
-                        Spacer()
-                        Text("\(pageIndex + 1) / \(pagePaths.count)")
-                            .font(.caption2)
-                            .monospacedDigit()
-                            .foregroundStyle(.white.opacity(0.75))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(.black.opacity(0.35), in: Capsule())
-                            .padding(.bottom, 6)
-                    }
-                    .allowsHitTesting(false)
+                if chromeVisible {
+                    chromeOverlay
+                        .transition(.opacity)
                 }
-            }
-
-            if showMenu {
-                menuOverlay
-                    .transition(.opacity)
             }
         }
         .task { await load() }
-        .onDisappear { saveProgress() }
+        .onAppear { UIApplication.shared.isIdleTimerDisabled = settings.comicKeepAwake }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
+            hideItem?.cancel()
+            saveProgress()
+        }
+        .onChange(of: settings.comicAutoTrim) { _, _ in
+            if settings.comicMode == .paged { Task { await showPage(pageIndex) } }
+        }
+        .onChange(of: settings.comicMode) { _, newValue in
+            if newValue == .continuous {
+                visibleIndex = pageIndex
+                hideChrome()
+            } else {
+                pageIndex = visibleIndex
+                Task { await showPage(pageIndex) }
+            }
+        }
+        .onChange(of: settings.comicChrome) { _, newValue in
+            if newValue == .always {
+                withAnimation { chromeVisible = true }
+            }
+        }
         .sheet(isPresented: $showGrid) { gridSheet }
-        .sheet(isPresented: $showSettings) { SettingsView(settings: settings) }
+        .sheet(isPresented: $showSettings) { ComicSettingsView(settings: settings) }
     }
 
-    // MARK: - 菜单
+    // MARK: - 内容
 
-    private var menuOverlay: some View {
+    private var mainContent: some View {
+        Group {
+            if settings.comicMode == .paged {
+                pagedContent
+            } else {
+                GeometryReader { geo in
+                    continuousContent(width: geo.size.width)
+                }
+            }
+        }
+    }
+
+    private var pagedContent: some View {
+        ZStack {
+            ComicPageView(
+                image: image,
+                fitMode: settings.comicFit,
+                doubleTapZoom: settings.comicDoubleTapZoom,
+                onSingleTap: { ratio in handleTap(ratio: ratio) },
+                onSwipeLeft: { turnTowardNext() },
+                onSwipeRight: { turnTowardPrev() },
+                onZoomChanged: { zoomed = $0 },
+                onEdgeExit: { exitReader() }
+            )
+            .ignoresSafeArea()
+
+            if imageLoading {
+                ProgressView()
+                    .tint(.white)
+                    .scaleEffect(1.15)
+            }
+        }
+    }
+
+    private func continuousContent(width: CGFloat) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(pagePaths.enumerated()), id: \.offset) { index, path in
+                        ContinuousComicPage(
+                            path: path,
+                            url: book.absoluteURL,
+                            width: width,
+                            trim: settings.comicAutoTrim,
+                            background: settings.comicBackground.color
+                        )
+                        .id(index)
+                        .onAppear {
+                            if index != visibleIndex {
+                                visibleIndex = index
+                                shelf.updateProgress(bookID: book.id, location: index, totalUnits: pagePaths.count)
+                            }
+                        }
+                    }
+                }
+            }
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    scrollTarget = pageIndex
+                }
+            }
+            .onChange(of: scrollTarget) { _, newValue in
+                guard let target = newValue else { return }
+                proxy.scrollTo(target, anchor: .top)
+                scrollTarget = nil
+            }
+            .simultaneousGesture(
+                SpatialTapGesture().onEnded { value in
+                    guard width > 1 else { return }
+                    handleTap(ratio: value.location.x / width)
+                }
+            )
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 24).onEnded { value in
+                    if value.startLocation.x < 24, value.translation.width > 60 {
+                        exitReader()
+                    }
+                }
+            )
+        }
+    }
+
+    private var loadingView: some View {
+        ProgressView("正在读取漫画…")
+            .tint(.white)
+            .foregroundStyle(.white)
+    }
+
+    private var emptyView: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.largeTitle)
+            Text("这本书里没有找到图片")
+            Text("可能是压缩包里的图片格式不受支持")
+                .font(.footnote)
+                .foregroundStyle(.gray)
+        }
+        .foregroundStyle(.white)
+        .padding(40)
+        .multilineTextAlignment(.center)
+    }
+
+    // MARK: - 工具栏
+
+    private var chromeOverlay: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 14) {
-                Button {
-                    saveProgress()
-                    onExit()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .semibold))
-                        .frame(width: 30, height: 30, alignment: .leading)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(book.title)
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(1)
-                    Text("\(pageIndex + 1) / \(pagePaths.count)")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.6))
-                        .monospacedDigit()
-                }
-                Spacer()
+            topBar
+            Spacer()
+            bottomBar
+        }
+        .environment(\.colorScheme, .dark)
+    }
+
+    private var topBar: some View {
+        HStack(spacing: 8) {
+            Button {
+                exitReader()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(width: 34, height: 34)
+            }
+
+            Text(book.title)
+                .font(.footnote.weight(.medium))
+                .lineLimit(1)
+
+            Spacer(minLength: 6)
+
+            if settings.comicChrome == .always, settings.comicShowPageNumber {
+                Text(pageText)
+                    .font(.caption2)
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.65))
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity)
+        .background { Rectangle().fill(.ultraThinMaterial).ignoresSafeArea(edges: .top) }
+    }
+
+    private var bottomBar: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(Color.white.opacity(0.10))
+                .frame(height: 0.5)
+
+            HStack(spacing: 0) {
                 Button {
                     showGrid = true
                 } label: {
                     Image(systemName: "square.grid.2x2")
-                        .font(.system(size: 17))
-                        .frame(width: 30, height: 30, alignment: .trailing)
+                        .font(.system(size: 16, weight: .medium))
+                        .frame(width: 46, height: 46)
                 }
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
-            .background { Color.black.opacity(0.85).ignoresSafeArea(edges: .top) }
 
-            Spacer()
+                Spacer(minLength: 0)
 
-            VStack(spacing: 14) {
-                Slider(
-                    value: Binding(
-                        get: { Double(pageIndex) },
-                        set: { newValue in
-                            let target = min(pagePaths.count - 1, max(0, Int(newValue)))
-                            if target != pageIndex { jump(to: target) }
-                        }
-                    ),
-                    in: 0...Double(max(1, pagePaths.count - 1))
-                )
-                .tint(.white)
-
-                HStack(spacing: 10) {
-                    chip(settings.comicFitWidth ? "铺满宽度" : "整页显示") {
-                        settings.comicFitWidth.toggle()
-                    }
-                    chip(settings.comicRTL ? "右→左" : "左→右") {
-                        settings.comicRTL.toggle()
-                    }
-                    Spacer()
+                if settings.comicMode == .paged {
                     Button {
-                        showSettings = true
+                        turnTowardPrev()
                     } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 17))
-                            .frame(width: 34, height: 30)
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 44, height: 46)
+                            .contentShape(Rectangle())
                     }
+                    if settings.comicShowPageNumber {
+                        Text(pageText)
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(.white.opacity(0.85))
+                            .frame(minWidth: 54)
+                    }
+                    Button {
+                        turnTowardNext()
+                    } label: {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 44, height: 46)
+                            .contentShape(Rectangle())
+                    }
+                } else if settings.comicShowPageNumber {
+                    Text(pageText)
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(minWidth: 54)
+                }
+
+                Spacer(minLength: 0)
+
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 16, weight: .medium))
+                        .frame(width: 46, height: 46)
                 }
             }
             .foregroundStyle(.white)
-            .padding(.horizontal, 20)
-            .padding(.top, 14)
-            .padding(.bottom, 10)
-            .background { Color.black.opacity(0.85).ignoresSafeArea(edges: .bottom) }
-        }
-    }
+            .padding(.horizontal, 4)
 
-    private func chip(_ text: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(text)
-                .font(.caption)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(.white.opacity(0.15), in: Capsule())
+            if settings.comicShowProgress {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Color.white.opacity(0.18)
+                        Color.white.frame(width: max(2, geo.size.width * progressFraction))
+                    }
+                }
+                .frame(height: 2)
+            }
         }
-        .buttonStyle(.plain)
+        .background { Rectangle().fill(.ultraThinMaterial).ignoresSafeArea(edges: .bottom) }
     }
 
     // MARK: - 页目录
@@ -199,7 +321,7 @@ struct ComicReaderView: View {
                                 path: path,
                                 url: book.absoluteURL,
                                 number: index + 1,
-                                isCurrent: index == pageIndex
+                                isCurrent: index == currentPage
                             )
                         }
                         .buttonStyle(.plain)
@@ -210,11 +332,35 @@ struct ComicReaderView: View {
             .navigationTitle("共 \(pagePaths.count) 页")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showGrid = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showSettings = true }
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("关闭") { showGrid = false }
                 }
             }
         }
+    }
+
+    // MARK: - 计算
+
+    private var currentPage: Int {
+        settings.comicMode == .continuous ? visibleIndex : pageIndex
+    }
+
+    private var pageText: String {
+        guard pagePaths.isEmpty == false else { return "0 / 0" }
+        return "\(min(currentPage + 1, pagePaths.count)) / \(pagePaths.count)"
+    }
+
+    private var progressFraction: CGFloat {
+        guard pagePaths.count > 1 else { return pagePaths.isEmpty ? 0 : 1 }
+        return CGFloat(min(max(currentPage, 0), pagePaths.count - 1)) / CGFloat(pagePaths.count - 1)
     }
 
     // MARK: - 逻辑
@@ -229,12 +375,20 @@ struct ComicReaderView: View {
         }.value
 
         pagePaths = paths
-        pageIndex = min(max(0, book.location), max(0, paths.count - 1))
+        let start = min(max(0, book.location), max(0, paths.count - 1))
+        pageIndex = start
+        visibleIndex = start
         isLoading = false
 
-        if paths.isEmpty == false {
-            await showPage(pageIndex)
-            shelf.updateProgress(bookID: book.id, location: pageIndex, totalUnits: paths.count)
+        guard paths.isEmpty == false else { return }
+
+        await showPage(start)
+        shelf.updateProgress(bookID: book.id, location: start, totalUnits: paths.count)
+
+        if settings.comicChrome == .always {
+            withAnimation { chromeVisible = true }
+        } else {
+            showChromeTemporarily()
         }
     }
 
@@ -243,14 +397,15 @@ struct ComicReaderView: View {
         guard pagePaths.indices.contains(index) else { return }
         let path = pagePaths[index]
         let url = book.absoluteURL
+        let trim = settings.comicAutoTrim
 
-        if let hit = ComicLoader.cachedImage(at: path, in: url) {
+        if let hit = ComicLoader.cachedImage(at: path, in: url, trim: trim) {
             image = hit
             imageLoading = false
         } else {
             imageLoading = true
             let loaded = await Task.detached(priority: .userInitiated) { () -> UIImage? in
-                ComicLoader.image(at: path, in: url)
+                ComicLoader.image(at: path, in: url, trim: trim)
             }.value
             if pageIndex == index {
                 image = loaded
@@ -260,60 +415,175 @@ struct ComicReaderView: View {
         preload(around: index)
     }
 
-    /// 预读前后各一页（+2），翻页时不至于白一下
     private func preload(around index: Int) {
+        let depth = max(0, settings.comicPreload)
+        guard depth > 0 else { return }
         let url = book.absoluteURL
-        for offset in [1, 2, -1] {
-            let target = index + offset
-            guard pagePaths.indices.contains(target) else { continue }
-            let path = pagePaths[target]
-            guard ComicLoader.cached(path: path, url: url) == false else { continue }
-            Task.detached(priority: .utility) { _ = ComicLoader.image(at: path, in: url) }
+        let trim = settings.comicAutoTrim
+        for offset in 1...depth {
+            for target in [index + offset, index - offset] where pagePaths.indices.contains(target) {
+                let path = pagePaths[target]
+                if ComicLoader.cachedImage(at: path, in: url, trim: trim) != nil { continue }
+                Task.detached(priority: .utility) { _ = ComicLoader.image(at: path, in: url, trim: trim) }
+            }
         }
     }
 
     private func jump(to index: Int) {
         guard pagePaths.indices.contains(index) else { return }
         pageIndex = index
+        visibleIndex = index
         saveProgress()
-        Task { await showPage(index) }
+        if settings.comicMode == .paged {
+            Task { await showPage(index) }
+        } else {
+            scrollTarget = index
+        }
     }
 
     private func turnTowardNext() {
-        turn(by: settings.comicRTL ? -1 : 1)
+        turn(by: settings.comicDirection == .rightToLeft ? -1 : 1)
     }
 
     private func turnTowardPrev() {
-        turn(by: settings.comicRTL ? 1 : -1)
+        turn(by: settings.comicDirection == .rightToLeft ? 1 : -1)
     }
 
     private func turn(by delta: Int) {
+        guard settings.comicMode == .paged else { return }
         let target = pageIndex + delta
         guard pagePaths.indices.contains(target) else { return }
         pageIndex = target
+        zoomed = false
         saveProgress()
         Task { await showPage(target) }
     }
 
-    /// 点按区域：左 1/3 翻向"前"，右 1/3 翻向"后"，中间叫菜单
     private func handleTap(ratio: CGFloat) {
-        if showMenu {
-            withAnimation { showMenu = false }
+        if zoomed { return }
+
+        // 竖向滚动模式下点按只控制工具栏
+        if settings.comicMode == .continuous {
+            if chromeVisible, settings.comicChrome != .always {
+                hideChrome()
+            } else {
+                toggleChrome()
+            }
             return
         }
-        if zoomed { return }
-        if ratio < 0.32 {
-            turnTowardPrev()
-        } else if ratio > 0.68 {
-            turnTowardNext()
-        } else {
-            withAnimation { showMenu = true }
+
+        // 工具栏开着时，点画面先收起（常驻模式除外）
+        if chromeVisible, settings.comicChrome != .always {
+            hideChrome()
+            return
         }
+
+        switch settings.comicTapZone {
+        case .off:
+            toggleChrome()
+        case .two:
+            if ratio < 0.42 {
+                turnTowardPrev()
+            } else if ratio > 0.58 {
+                turnTowardNext()
+            } else {
+                toggleChrome()
+            }
+        case .three:
+            if ratio < 0.33 {
+                turnTowardPrev()
+            } else if ratio > 0.67 {
+                turnTowardNext()
+            } else {
+                toggleChrome()
+            }
+        }
+    }
+
+    private func toggleChrome() {
+        switch settings.comicChrome {
+        case .always:
+            break
+        case .autoHide:
+            showChromeTemporarily()
+        case .manual:
+            hideItem?.cancel()
+            withAnimation(.easeInOut(duration: 0.18)) { chromeVisible.toggle() }
+        }
+    }
+
+    private func showChromeTemporarily() {
+        hideItem?.cancel()
+        withAnimation(.easeInOut(duration: 0.16)) { chromeVisible = true }
+        guard settings.comicChrome == .autoHide else { return }
+        let item = DispatchWorkItem {
+            withAnimation(.easeInOut(duration: 0.2)) { chromeVisible = false }
+        }
+        hideItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + settings.comicAutoHideDelay, execute: item)
+    }
+
+    private func hideChrome() {
+        hideItem?.cancel()
+        withAnimation(.easeInOut(duration: 0.2)) { chromeVisible = false }
+    }
+
+    private func exitReader() {
+        hideItem?.cancel()
+        saveProgress()
+        onExit()
     }
 
     private func saveProgress() {
         guard pagePaths.isEmpty == false else { return }
-        shelf.updateProgress(bookID: book.id, location: pageIndex, totalUnits: pagePaths.count)
+        shelf.updateProgress(bookID: book.id, location: currentPage, totalUnits: pagePaths.count)
+    }
+}
+
+// MARK: - 连续滚动单页
+
+struct ContinuousComicPage: View {
+    let path: String
+    let url: URL
+    let width: CGFloat
+    let trim: Bool
+    let background: Color
+
+    @State private var image: UIImage?
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: width)
+            } else {
+                Rectangle()
+                    .fill(background)
+                    .frame(width: width, height: width * 1.4)
+                    .overlay {
+                        if failed {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundStyle(.gray)
+                        } else {
+                            ProgressView().tint(.gray)
+                        }
+                    }
+            }
+        }
+        .task {
+            guard image == nil else { return }
+            let loaded = await Task.detached(priority: .utility) { () -> UIImage? in
+                ComicLoader.image(at: path, in: url, trim: trim)
+            }.value
+            if let loaded {
+                image = loaded
+            } else {
+                failed = true
+            }
+        }
     }
 }
 

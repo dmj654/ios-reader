@@ -2,10 +2,10 @@
 //  ComicPageView.swift
 //  ReaderApp
 //
-//  可缩放的漫画页（UIScrollView + UIImageView）
-//  - 双指缩放 / 双击放大还原 / 放大后可拖动
-//  - 单指点按、左右轻扫回传给 SwiftUI 做翻页和菜单
-//  - 支持「整页显示」和「铺满宽度」两种模式
+//  可缩放的漫画单页（UIScrollView + UIImageView）
+//  - 三种适配方式：整页 / 铺满宽度 / 铺满高度
+//  - 双指缩放、双击放大还原（可关闭）、放大后可拖动
+//  - 左边缘右滑退出阅读
 //
 
 import SwiftUI
@@ -13,11 +13,13 @@ import UIKit
 
 struct ComicPageView: UIViewRepresentable {
     let image: UIImage?
-    let fitWidth: Bool
+    let fitMode: ComicFitMode
+    let doubleTapZoom: Bool
     let onSingleTap: (CGFloat) -> Void
     let onSwipeLeft: () -> Void
     let onSwipeRight: () -> Void
     let onZoomChanged: (Bool) -> Void
+    let onEdgeExit: () -> Void
 
     func makeUIView(context: Context) -> ComicZoomView {
         let view = ComicZoomView()
@@ -25,7 +27,9 @@ struct ComicPageView: UIViewRepresentable {
         view.onSwipeLeft = onSwipeLeft
         view.onSwipeRight = onSwipeRight
         view.onZoomChanged = onZoomChanged
-        view.fitWidth = fitWidth
+        view.onEdgeExit = onEdgeExit
+        view.fitMode = fitMode
+        view.doubleTapZoom = doubleTapZoom
         view.display(image: image)
         return view
     }
@@ -35,13 +39,20 @@ struct ComicPageView: UIViewRepresentable {
         uiView.onSwipeLeft = onSwipeLeft
         uiView.onSwipeRight = onSwipeRight
         uiView.onZoomChanged = onZoomChanged
+        uiView.onEdgeExit = onEdgeExit
 
-        if uiView.fitWidth != fitWidth {
-            uiView.fitWidth = fitWidth
-            uiView.relayout(force: true)
+        var needsLayout = false
+        if uiView.fitMode != fitMode {
+            uiView.fitMode = fitMode
+            needsLayout = true
+        }
+        if uiView.doubleTapZoom != doubleTapZoom {
+            uiView.doubleTapZoom = doubleTapZoom
         }
         if uiView.currentImage !== image {
             uiView.display(image: image)
+        } else if needsLayout {
+            uiView.relayout(force: true)
         }
     }
 }
@@ -55,8 +66,10 @@ final class ComicZoomView: UIScrollView, UIScrollViewDelegate {
     var onSwipeLeft: (() -> Void)?
     var onSwipeRight: (() -> Void)?
     var onZoomChanged: ((Bool) -> Void)?
+    var onEdgeExit: (() -> Void)?
 
-    var fitWidth: Bool = false
+    var fitMode: ComicFitMode = .screen
+    var doubleTapZoom: Bool = true
 
     private var minScale: CGFloat = 1
     private var lastLayoutSize: CGSize = .zero
@@ -65,7 +78,7 @@ final class ComicZoomView: UIScrollView, UIScrollViewDelegate {
     override init(frame: CGRect) {
         super.init(frame: frame)
         delegate = self
-        backgroundColor = .black
+        backgroundColor = .clear
         showsVerticalScrollIndicator = false
         showsHorizontalScrollIndicator = false
         bouncesZoom = true
@@ -93,6 +106,11 @@ final class ComicZoomView: UIScrollView, UIScrollViewDelegate {
         let swipeRight = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipe(_:)))
         swipeRight.direction = .right
         addGestureRecognizer(swipeRight)
+
+        // 左边缘右滑 = 退出阅读
+        let edgePan = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleEdgePan(_:)))
+        edgePan.edges = .left
+        addGestureRecognizer(edgePan)
     }
 
     required init?(coder: NSCoder) {
@@ -122,8 +140,16 @@ final class ComicZoomView: UIScrollView, UIScrollViewDelegate {
         let heightScale = bounds.height / imageSize.height
         let fitAll = min(widthScale, heightScale)
 
-        minScale = fitWidth ? widthScale : min(fitAll, widthScale)
-        // 关键：必须同时设置 minimumZoomScale，否则 zoomScale 会被 UIKit 夹到 1.0，导致只看到整页中间一小块
+        switch fitMode {
+        case .screen:
+            minScale = fitAll
+        case .width:
+            minScale = widthScale
+        case .height:
+            minScale = heightScale
+        }
+
+        // 关键：必须同时设置 minimumZoomScale，否则 zoomScale 会被 UIKit 夹到 1.0
         minimumZoomScale = minScale
         maximumZoomScale = max(minScale * 4, minScale + 0.01)
         zoomScale = minScale
@@ -150,7 +176,6 @@ final class ComicZoomView: UIScrollView, UIScrollViewDelegate {
     // MARK: - 手势
 
     @objc private func handleSingleTap(_ gesture: UITapGestureRecognizer) {
-        // 放大状态下先还原
         if zoomScale > minScale + 0.03 {
             setZoomScale(minScale, animated: true)
             return
@@ -161,6 +186,7 @@ final class ComicZoomView: UIScrollView, UIScrollViewDelegate {
     }
 
     @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+        guard doubleTapZoom else { return }
         if zoomScale > minScale + 0.03 {
             setZoomScale(minScale, animated: true)
             return
@@ -182,6 +208,14 @@ final class ComicZoomView: UIScrollView, UIScrollViewDelegate {
             onSwipeLeft?()
         } else if gesture.direction == .right {
             onSwipeRight?()
+        }
+    }
+
+    @objc private func handleEdgePan(_ gesture: UIScreenEdgePanGestureRecognizer) {
+        guard gesture.state == .ended else { return }
+        let translation = gesture.translation(in: self)
+        if translation.x > 70 {
+            onEdgeExit?()
         }
     }
 
