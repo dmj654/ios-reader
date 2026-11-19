@@ -1,0 +1,100 @@
+name: ReaderApp
+
+options:
+  bundleIdPrefix: com.local.reader
+  deploymentTarget:
+    iOS: "18.0"
+  developmentLanguage: zh-Hans
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+packages:
+  ZIPFoundation:
+    url: https://github.com/weichsel/ZIPFoundation.git
+    from: 0.9.19
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+    CODE_SIGN_STYLE: Automatic
+
+schemes:
+  ReaderApp:
+    build:
+      targets:
+        ReaderApp: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Release
+    archive:
+      config: Release
+
+targets:
+  ReaderApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: ReaderApp
+        excludes:
+          - "Info.plist"
+    dependencies:
+      - package: ZIPFoundation
+        product: ZIPFoundation
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.local.reader.app
+        PRODUCT_NAME: ReaderApp
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: "NO"
+        INFOPLIST_FILE: ReaderApp/Info.plist
+        SWIFT_EMIT_LOC_STRINGS: "YES"
+    info:
+      path: ReaderApp/Info.plist
+      properties:
+        CFBundleDisplayName: "本地阅读器"
+        CFBundleName: "本地阅读器"
+        CFBundleShortVersionString: "0.2.0"
+        CFBundleVersion: "2"
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UIRequiresFullScreen: false
+        UIStatusBarHidden: false
+        UIViewControllerBasedStatusBarAppearance: true
+        UIApplicationSupportsIndirectInputEvents: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UISupportsDocumentBrowser: false
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: "纯文本"
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            CFBundleTypeExtensions: ["txt", "text"]
+            LSItemContentTypes: ["public.plain-text"]
+          - CFBundleTypeName: "EPUB 电子书"
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Owner
+            CFBundleTypeExtensions: ["epub"]
+            LSItemContentTypes: ["org.idpf.epub-container"]
+          - CFBundleTypeName: "PDF 文档"
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            CFBundleTypeExtensions: ["pdf"]
+            LSItemContentTypes: ["com.adobe.pdf"]
+          - CFBundleTypeName: "漫画压缩包"
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Owner
+            CFBundleTypeExtensions: ["cbz", "zip"]
+            LSItemContentTypes: ["public.zip-archive"]
