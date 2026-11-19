@@ -80,7 +80,7 @@ struct PdfReaderView: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 10)
-            .background(.black.opacity(0.7).ignoresSafeArea(edges: .top))
+            .background { Color.black.opacity(0.7).ignoresSafeArea(edges: .top) }
 
             Spacer()
 
@@ -104,7 +104,7 @@ struct PdfReaderView: View {
             .padding(.horizontal, 20)
             .padding(.top, 12)
             .padding(.bottom, 10)
-            .background(.black.opacity(0.7).ignoresSafeArea(edges: .bottom))
+            .background { Color.black.opacity(0.7).ignoresSafeArea(edges: .bottom) }
         }
         .foregroundStyle(.white)
     }

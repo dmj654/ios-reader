@@ -179,10 +179,9 @@ struct TextReaderView: View {
             .foregroundStyle(settings.theme.foreground)
             .padding(.horizontal, 20)
             .padding(.vertical, 10)
-            .background(
-                settings.theme.background.opacity(0.97)
-                    .ignoresSafeArea(edges: .top)
-            )
+            .background {
+                settings.theme.background.opacity(0.97).ignoresSafeArea(edges: .top)
+            }
 
             Spacer()
 
@@ -229,10 +228,9 @@ struct TextReaderView: View {
             .padding(.horizontal, 20)
             .padding(.top, 14)
             .padding(.bottom, 8)
-            .background(
-                settings.theme.background.opacity(0.97)
-                    .ignoresSafeArea(edges: .bottom)
-            )
+            .background {
+                settings.theme.background.opacity(0.97).ignoresSafeArea(edges: .bottom)
+            }
         }
     }
 
