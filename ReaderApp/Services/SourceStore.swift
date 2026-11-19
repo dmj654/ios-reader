@@ -88,6 +88,11 @@ final class SourceStore: ObservableObject {
     func importText(_ text: String) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.isEmpty == false else { return "内容为空" }
+
+        if LegadoBridge.looksLikeLegado(trimmed) {
+            return importLegado(trimmed)
+        }
+
         do {
             let imported = try SourceStore.decodeSources(trimmed)
             guard imported.isEmpty == false else { return "没有解析到任何书源" }
@@ -115,6 +120,39 @@ final class SourceStore: ObservableObject {
             return "已导入 \(accepted.count) 个，跳过 \(rejected.count) 个：\n" + rejected.joined(separator: "\n")
         } catch {
             return (error as? LocalizedError)?.errorDescription ?? "JSON 格式不对：\(error.localizedDescription)"
+        }
+    }
+
+    /// Legado（阅读）格式：自动转换后导入
+    private func importLegado(_ text: String) -> String? {
+        do {
+            let (converted, notes) = try LegadoBridge.convert(text)
+            guard converted.isEmpty == false else {
+                var lines = ["这份 Legado 书源里没有能用的条目，未导入。"]
+                lines.append(contentsOf: notes)
+                return lines.joined(separator: "\n")
+            }
+
+            sources.append(contentsOf: converted)
+            save()
+
+            let novelCount = converted.filter { $0.type == .novel }.count
+            let comicCount = converted.filter { $0.type == .comic }.count
+
+            var lines: [String] = [
+                "已识别 Legado 格式，转换并导入 \(converted.count) 条（小说 \(novelCount) / 漫画 \(comicCount)），已启用。"
+            ]
+            for source in converted {
+                let problems = SourceStore.problems(for: source)
+                if problems.isEmpty == false {
+                    lines.append("「\(source.name)」还缺：\(problems.joined(separator: "、"))")
+                }
+            }
+            lines.append(contentsOf: notes)
+            lines.append("搜不到就进书源管理，选那条源，按「搜索 → 目录 → 正文」逐级测。")
+            return lines.joined(separator: "\n")
+        } catch {
+            return (error as? LocalizedError)?.errorDescription ?? "转换失败：\(error.localizedDescription)"
         }
     }
 
@@ -230,6 +268,14 @@ final class SourceStore: ObservableObject {
     var comicSources: [BookSource] { sources.filter { $0.type == .comic } }
 
     static func decodeSource(_ text: String) throws -> BookSource {
+        // 编辑器里直接粘一条 Legado 书源也能测
+        if LegadoBridge.looksLikeLegado(text) {
+            let (sources, _) = try LegadoBridge.convert(text)
+            guard let first = sources.first else {
+                throw SourceFailure(message: "这份 Legado 书源里没有能用的条目")
+            }
+            return first
+        }
         let list = try decodeSources(text)
         guard let first = list.first else { throw SourceFailure(message: "没有书源内容") }
         return first

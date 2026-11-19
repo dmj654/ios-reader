@@ -167,7 +167,7 @@ struct SourceManagerView: View {
     private var pasteSheet: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 10) {
-                Text("粘一个书源对象，或一个书源数组都行。不是本 App 格式的会被识别并说明原因。")
+                Text("支持「阅读 / Legado」导出的书源 JSON，会自动转换；也支持本 App 自己的精简格式。一次粘一条或整个数组都行。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 16)
@@ -421,6 +421,19 @@ struct SourceDocView: View {
         ("{{base}}", "书源的 baseUrl")
     ]
 
+    private let legadoRows: [(String, String)] = [
+        ("@css:选择器", "阅读(Legado)的 CSS 写法，等价于 css:"),
+        ("class.名字", "等价于 CSS 的 .名字"),
+        ("tag.名字", "等价于 CSS 的 标签名"),
+        ("//xpath", "简化的 XPath，会自动转成 CSS；带 following-sibling、ancestor 这类会报不支持"),
+        ("$....", "JSON 路径，等价于 json:"),
+        ("@text / @html / @href / @src", "取值后缀，和上面通用"),
+        ("@tag.li / @css:xxx", "在已取到的元素里再往下选一层"),
+        ("##正则##替换", "取到结果后做正则替换，常用来删广告"),
+        ("aaa||bbb", "前一条取不到就试后一条"),
+        ("<js> / @js:", "跑不了：本 App 没有 JS 引擎，会明确提示")
+    ]
+
     var body: some View {
         NavigationStack {
             List {
@@ -455,6 +468,23 @@ struct SourceDocView: View {
                     }
                 } header: {
                     Text("规则语法")
+                }
+
+                Section {
+                    ForEach(legadoRows.indices, id: \.self) { index in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(legadoRows[index].0)
+                                .font(.system(size: 12, design: .monospaced))
+                            Text(legadoRows[index].1)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 1)
+                    }
+                } header: {
+                    Text("也认「阅读 / Legado」的写法")
+                } footer: {
+                    Text("导入 Legado 书源时会自动转成这里的结构，规则原样保留，靠上面这套语法跑。")
                 }
 
                 Section {

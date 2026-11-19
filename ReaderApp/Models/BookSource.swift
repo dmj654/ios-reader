@@ -122,6 +122,8 @@ struct BookSource: Identifiable, Codable, Hashable {
     var type: SourceType = .novel
     /// 站点根地址，所有相对链接和图片都以它为基准
     var baseUrl: String = ""
+    /// 所有请求都带上的头（Legado 书源里的 header，常放 UA / Cookie）
+    var headers: [String: String] = [:]
     var enabled: Bool = true
     var search: SearchRule = SearchRule()
     var chapters: ChapterRule = ChapterRule()
@@ -130,17 +132,19 @@ struct BookSource: Identifiable, Codable, Hashable {
     init() {}
 
     init(name: String, type: SourceType, baseUrl: String,
-         search: SearchRule, chapters: ChapterRule, content: ContentRule) {
+         search: SearchRule, chapters: ChapterRule, content: ContentRule,
+         headers: [String: String] = [:]) {
         self.name = name
         self.type = type
         self.baseUrl = baseUrl
+        self.headers = headers
         self.search = search
         self.chapters = chapters
         self.content = content
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, type, baseUrl, enabled, search, chapters, content
+        case id, name, type, baseUrl, headers, enabled, search, chapters, content
     }
 
     init(from decoder: Decoder) throws {
@@ -149,6 +153,7 @@ struct BookSource: Identifiable, Codable, Hashable {
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? "未命名书源"
         type = try c.decodeIfPresent(SourceType.self, forKey: .type) ?? .novel
         baseUrl = try c.decodeIfPresent(String.self, forKey: .baseUrl) ?? ""
+        headers = try c.decodeIfPresent([String: String].self, forKey: .headers) ?? [:]
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         search = try c.decodeIfPresent(SearchRule.self, forKey: .search) ?? SearchRule()
         chapters = try c.decodeIfPresent(ChapterRule.self, forKey: .chapters) ?? ChapterRule()

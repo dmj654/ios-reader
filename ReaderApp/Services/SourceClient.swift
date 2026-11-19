@@ -44,6 +44,11 @@ enum SourceClient {
         if refererValue.isEmpty == false {
             request.setValue(refererValue, forHTTPHeaderField: "Referer")
         }
+        // 书源自带的头（Legado 的 header：UA / Cookie 等）
+        for (key, value) in source.headers {
+            if key.lowercased() == "referer" { continue }
+            request.setValue(value, forHTTPHeaderField: key)
+        }
         for (key, value) in extraHeaders {
             request.setValue(value, forHTTPHeaderField: key)
         }
@@ -193,6 +198,11 @@ enum SourceClient {
             throw SourceFailure(message: "取不到正文，检查 content.text 规则")
         }
 
+        // Legado 的正文规则常以 @html 结尾，拿到的是标签，这里统一转成纯文本
+        if text.contains("<") && text.contains(">") {
+            text = RuleParser.plainText(html: text)
+        }
+
         text = cleanLines(text, patterns: rule.removeLines)
         if text.count < 20 {
             throw SourceFailure(message: "正文太短（\(text.count) 字），可能是站点换了正文容器")
@@ -224,6 +234,17 @@ enum SourceClient {
         }
 
         images = images.filter { $0.hasPrefix("http") }
+
+        // Legado 的图片规则有时以 @html 结尾，拿到的是 HTML 片段，从里面再抽一遍 src
+        if images.isEmpty, let first = RuleParser.strings(rule.images, in: root, base: url).first,
+           first.contains("<img") {
+            for raw in RuleParser.strings(rule.images, in: root, base: url) {
+                let found = RuleParser.regexMatches("<img[^>]+src=[\"']([^\"']+)[\"']", in: raw)
+                images.append(contentsOf: found.map { RuleParser.absolutize($0, base: url) })
+            }
+            images = images.filter { $0.hasPrefix("http") }
+        }
+
         if images.isEmpty {
             throw SourceFailure(message: "这一章没取到图片，检查 content.images 规则")
         }
@@ -308,6 +329,11 @@ enum SourceClient {
                     lines.append("章节示例：\(names.joined(separator: " | "))")
                     lines.append("链接示例：\(links.first ?? "空")")
                 }
+                lines.append(contentsOf: unsupportedNote([
+                    ("chapters.list", source.chapters.list),
+                    ("chapters.name", source.chapters.name),
+                    ("chapters.link", source.chapters.link)
+                ]))
                 return DebugOutput(detail: lines.joined(separator: "\n"), html: html, pageURL: detailURL)
 
             case .content:
@@ -367,6 +393,7 @@ enum SourceClient {
                     if text.count < 20 {
                         lines.append("太短了 → 检查 content.text，或站点把正文放在别的容器里")
                     }
+                    lines.append(contentsOf: unsupportedNote([("content.text", source.content.text)]))
                 }
                 return DebugOutput(detail: lines.joined(separator: "\n"), html: html, pageURL: chapterURL)
             }
@@ -400,7 +427,19 @@ enum SourceClient {
             lines.append("书名示例：\(names.joined(separator: " | "))")
             lines.append("链接示例：\(links.first ?? "空")")
         }
+        lines.append(contentsOf: unsupportedNote([
+            ("search.list", rule.list),
+            ("search.name", rule.name),
+            ("search.link", rule.link)
+        ]))
         return DebugOutput(detail: lines.joined(separator: "\n"), html: html, pageURL: url)
+    }
+
+    /// 这一段里有没有跑不了的规则，单独点出来
+    private static func unsupportedNote(_ pairs: [(String, String)]) -> [String] {
+        pairs.compactMap { label, rule in
+            RuleParser.unsupportedReason(rule).map { "⚠︎ \(label)：\($0)" }
+        }
     }
 
     private static func firstItem(source: BookSource, keyword: String) async throws -> SourceItem {
