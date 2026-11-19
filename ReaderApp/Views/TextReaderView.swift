@@ -155,83 +155,86 @@ struct TextReaderView: View {
 
     private var menuOverlay: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 14) {
-                Button {
-                    saveProgress()
-                    onExit()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .semibold))
-                        .frame(width: 30, height: 30, alignment: .leading)
-                }
-                Text(book.title)
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
-                Spacer()
-                Button {
-                    showTOC = true
-                } label: {
-                    Image(systemName: "list.bullet")
-                        .font(.system(size: 17))
-                        .frame(width: 30, height: 30, alignment: .trailing)
-                }
-            }
-            .foregroundStyle(settings.theme.foreground)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
-            .background {
-                settings.theme.background.opacity(0.97).ignoresSafeArea(edges: .top)
-            }
-
-            Spacer()
-
-            VStack(spacing: 14) {
-                HStack(spacing: 12) {
-                    Text("\(pageIndex + 1)").font(.caption).monospacedDigit()
-                    Slider(
-                        value: Binding(
-                            get: { Double(pageIndex) },
-                            set: { newValue in
-                                guard pageRanges.isEmpty == false else { return }
-                                pageIndex = min(pageRanges.count - 1, max(0, Int(newValue)))
-                            }
-                        ),
-                        in: 0...Double(max(1, pageRanges.count - 1))
-                    )
-                    Text("\(pageRanges.count)").font(.caption).monospacedDigit()
-                }
-
-                HStack(spacing: 26) {
-                    Button {
-                        settings.fontSize = max(13, settings.fontSize - 1)
-                    } label: {
-                        Image(systemName: "textformat.size.smaller")
+            ReaderCapsule(dark: settings.theme.isDark) {
+                HStack(spacing: 4) {
+                    ChromeIconButton(systemName: "chevron.left", tint: ink) {
+                        saveProgress()
+                        onExit()
                     }
-                    Button {
-                        settings.fontSize = min(30, settings.fontSize + 1)
-                    } label: {
-                        Image(systemName: "textformat.size.larger")
+
+                    Text(book.title)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(ink)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .center)
+
+                    Text(pageSummary)
+                        .font(.system(size: 11))
+                        .monospacedDigit()
+                        .foregroundStyle(ink.opacity(0.55))
+                        .frame(minWidth: 56, alignment: .trailing)
+                }
+                .padding(.horizontal, 6)
+            }
+            .padding(.horizontal, ReaderChromeMetrics.horizontalInset)
+            .padding(.top, ReaderChromeMetrics.topGap)
+
+            Spacer(minLength: 0)
+
+            ReaderCapsule(dark: settings.theme.isDark) {
+                HStack(spacing: 2) {
+                    ChromeIconButton(systemName: "list.bullet", tint: ink) {
+                        showTOC = true
                     }
-                    Spacer()
-                    Button {
+
+                    ChromeProgressTrack(fraction: progressBinding, tint: ink) {
+                        saveProgress()
+                    }
+                    .padding(.horizontal, 2)
+
+                    Text("\(Int((pageFraction * 100).rounded()))%")
+                        .font(.system(size: 10))
+                        .monospacedDigit()
+                        .foregroundStyle(ink.opacity(0.55))
+                        .frame(minWidth: 30, alignment: .trailing)
+                        .allowsHitTesting(false)
+
+                    ChromeIconButton(systemName: "textformat", tint: ink) {
                         showSettings = true
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "textformat")
-                            Text("设置").font(.caption)
-                        }
                     }
                 }
-                .font(.system(size: 18))
+                .padding(.horizontal, 6)
             }
-            .foregroundStyle(settings.theme.foreground)
-            .padding(.horizontal, 20)
-            .padding(.top, 14)
-            .padding(.bottom, 8)
-            .background {
-                settings.theme.background.opacity(0.97).ignoresSafeArea(edges: .bottom)
-            }
+            .padding(.horizontal, ReaderChromeMetrics.horizontalInset)
+            .padding(.bottom, ReaderChromeMetrics.bottomGap)
         }
+    }
+
+    // MARK: - 工具栏用的计算量
+
+    private var ink: Color { settings.theme.foreground }
+
+    private var pageSummary: String {
+        "\(min(pageIndex + 1, max(1, pageRanges.count))) / \(max(1, pageRanges.count))"
+    }
+
+    private var pageFraction: Double {
+        guard pageRanges.count > 1 else { return 0 }
+        return Double(min(max(pageIndex, 0), pageRanges.count - 1)) / Double(pageRanges.count - 1)
+    }
+
+    private var progressBinding: Binding<Double> {
+        Binding(
+            get: { pageFraction },
+            set: { newValue in jump(toFraction: newValue) }
+        )
+    }
+
+    private func jump(toFraction fraction: Double) {
+        guard pageRanges.isEmpty == false else { return }
+        let span = Double(max(0, pageRanges.count - 1))
+        let index = Int((fraction * span).rounded())
+        pageIndex = min(pageRanges.count - 1, max(0, index))
     }
 
     // MARK: - 目录

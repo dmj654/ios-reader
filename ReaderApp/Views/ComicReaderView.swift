@@ -194,116 +194,101 @@ struct ComicReaderView: View {
 
     private var chromeOverlay: some View {
         VStack(spacing: 0) {
-            topBar
-            Spacer()
-            bottomBar
+            topCapsule
+                .padding(.horizontal, ReaderChromeMetrics.horizontalInset)
+                .padding(.top, ReaderChromeMetrics.topGap)
+
+            Spacer(minLength: 0)
+
+            VStack(spacing: 6) {
+                bottomCapsule
+
+                if settings.comicShowProgress {
+                    progressLine
+                        .padding(.horizontal, 4)
+                }
+            }
+            .padding(.horizontal, ReaderChromeMetrics.horizontalInset)
+            .padding(.bottom, ReaderChromeMetrics.bottomGap)
         }
-        .environment(\.colorScheme, .dark)
     }
 
-    private var topBar: some View {
-        HStack(spacing: 8) {
-            Button {
-                exitReader()
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 17, weight: .semibold))
-                    .frame(width: 34, height: 34)
-            }
+    private var topCapsule: some View {
+        ReaderCapsule(dark: true) {
+            HStack(spacing: 4) {
+                ChromeIconButton(systemName: "chevron.left", tint: .white) {
+                    exitReader()
+                }
 
-            Text(book.title)
-                .font(.footnote.weight(.medium))
-                .lineLimit(1)
+                Text(book.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .center)
 
-            Spacer(minLength: 6)
-
-            if settings.comicChrome == .always, settings.comicShowPageNumber {
                 Text(pageText)
-                    .font(.caption2)
+                    .font(.system(size: 11))
                     .monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.65))
+                    .foregroundStyle(.white.opacity(0.60))
+                    .frame(minWidth: 56, alignment: .trailing)
+                    .allowsHitTesting(false)
             }
+            .padding(.horizontal, 6)
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity)
-        .background { Rectangle().fill(.ultraThinMaterial).ignoresSafeArea(edges: .top) }
     }
 
-    private var bottomBar: some View {
-        VStack(spacing: 0) {
-            Rectangle()
-                .fill(Color.white.opacity(0.10))
-                .frame(height: 0.5)
-
+    private var bottomCapsule: some View {
+        ReaderCapsule(dark: true) {
             HStack(spacing: 0) {
-                Button {
+                ChromeIconButton(systemName: "square.grid.2x2", tint: .white) {
                     showGrid = true
-                } label: {
-                    Image(systemName: "square.grid.2x2")
-                        .font(.system(size: 16, weight: .medium))
-                        .frame(width: 46, height: 46)
                 }
 
                 Spacer(minLength: 0)
 
                 if settings.comicMode == .paged {
-                    Button {
+                    ChromeIconButton(systemName: "chevron.left", tint: .white) {
                         turnTowardPrev()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(width: 44, height: 46)
-                            .contentShape(Rectangle())
                     }
                     if settings.comicShowPageNumber {
                         Text(pageText)
-                            .font(.caption)
+                            .font(.system(size: 11))
                             .monospacedDigit()
                             .foregroundStyle(.white.opacity(0.85))
-                            .frame(minWidth: 54)
+                            .frame(minWidth: 56)
                     }
-                    Button {
+                    ChromeIconButton(systemName: "chevron.right", tint: .white) {
                         turnTowardNext()
-                    } label: {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(width: 44, height: 46)
-                            .contentShape(Rectangle())
                     }
                 } else if settings.comicShowPageNumber {
                     Text(pageText)
-                        .font(.caption)
+                        .font(.system(size: 11))
                         .monospacedDigit()
                         .foregroundStyle(.white.opacity(0.85))
-                        .frame(minWidth: 54)
+                        .frame(minWidth: 56)
                 }
 
                 Spacer(minLength: 0)
 
-                Button {
+                ChromeIconButton(systemName: "gearshape", tint: .white) {
                     showSettings = true
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 16, weight: .medium))
-                        .frame(width: 46, height: 46)
                 }
             }
-            .foregroundStyle(.white)
             .padding(.horizontal, 4)
+        }
+    }
 
-            if settings.comicShowProgress {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Color.white.opacity(0.18)
-                        Color.white.frame(width: max(2, geo.size.width * progressFraction))
-                    }
-                }
-                .frame(height: 2)
+    private var progressLine: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.16))
+                Capsule()
+                    .fill(Color.white.opacity(0.70))
+                    .frame(width: max(2, geo.size.width * progressFraction))
             }
         }
-        .background { Rectangle().fill(.ultraThinMaterial).ignoresSafeArea(edges: .bottom) }
+        .frame(height: 2)
+        .allowsHitTesting(false)
     }
 
     // MARK: - 页目录
