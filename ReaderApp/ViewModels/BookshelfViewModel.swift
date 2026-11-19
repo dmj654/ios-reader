@@ -34,7 +34,8 @@ final class BookshelfViewModel: ObservableObject {
     }
 
     init() {
-        storeURL = docsDir.appendingPathComponent("bookshelf.json")
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        storeURL = docs.appendingPathComponent("bookshelf.json")
         ensureDirs()
         load()
         scan()
