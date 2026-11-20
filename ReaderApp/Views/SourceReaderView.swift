@@ -3,6 +3,7 @@
 //  ReaderApp
 //
 //  在线阅读：按章抓取、预载后两章、记住读到第几章
+//  界面与书架小说阅读页对齐：统一悬浮胶囊工具条、全局主题/字号/行距/段距/字体/简繁
 //
 
 import SwiftUI
@@ -22,7 +23,7 @@ struct SourceReaderView: View {
     @State private var prefetching = Set<Int>()
     @State private var chrome = true
     @State private var showDirectory = false
-    @State private var fontSize: Double = 18
+    @State private var showSettings = false
     @State private var loadedIndex = -1
 
     @ObservedObject private var speech = SpeechReader.shared
@@ -33,10 +34,9 @@ struct SourceReaderView: View {
         self.item = item
         self.chapters = chapters
         _index = State(initialValue: max(0, min(startIndex, max(0, chapters.count - 1))))
-        _fontSize = State(initialValue: UserDefaults.standard.double(forKey: "sourceReaderFontSize") > 0
-                          ? UserDefaults.standard.double(forKey: "sourceReaderFontSize")
-                          : 18)
     }
+
+    private var ink: Color { settings.theme.foreground }
 
     var body: some View {
         ZStack {
@@ -44,10 +44,11 @@ struct SourceReaderView: View {
                 .ignoresSafeArea()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(TextScript.convert(Purifier.cleanTitle(chapters.indices.contains(index) ? chapters[index].name : "…"), mode: scriptMode))
-                        .font(FontLibrary.font(name: readerFontName, size: fontSize + 4))
+                VStack(alignment: .leading, spacing: settings.paragraphSpacing) {
+                    Text(TextScript.convert(Purifier.cleanTitle(chapters.indices.contains(index) ? chapters[index].name : "…"), mode: settings.scriptMode))
+                        .font(FontLibrary.font(name: settings.fontName, size: settings.fontSize + 4))
                         .fontWeight(.semibold)
+                        .foregroundStyle(ink)
                         .padding(.bottom, 2)
 
                     if loading && text.isEmpty {
@@ -55,7 +56,7 @@ struct SourceReaderView: View {
                             ProgressView()
                             Text("正在抓正文…")
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(ink.opacity(0.6))
                         }
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 60)
@@ -69,10 +70,11 @@ struct SourceReaderView: View {
                         }
                         .padding(.top, 30)
                     } else {
-                        Text(TextScript.convert(text, mode: scriptMode))
-                            .font(FontLibrary.font(name: readerFontName, size: fontSize))
-                            .fontWeight(bodyBold ? .semibold : .regular)
-                            .lineSpacing(fontSize * 0.55)
+                        Text(TextScript.convert(text, mode: settings.scriptMode))
+                            .font(FontLibrary.font(name: settings.fontName, size: settings.fontSize))
+                            .fontWeight(settings.boldBody ? .semibold : .regular)
+                            .lineSpacing(settings.lineSpacing)
+                            .foregroundStyle(ink)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
@@ -85,20 +87,20 @@ struct SourceReaderView: View {
                                 } label: {
                                     Text("‹ 上一章")
                                         .font(.system(size: 12))
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(ink.opacity(0.55))
                                 }
                             }
                             Text("\(index + 1) / \(chapters.count)")
                                 .font(.system(size: 10))
                                 .monospacedDigit()
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(ink.opacity(0.4))
                             if index + 1 < chapters.count {
                                 Button {
                                     load(index + 1)
                                 } label: {
                                     Text("下一章 ›")
                                         .font(.system(size: 12))
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(ink.opacity(0.55))
                                 }
                             }
                         }
@@ -113,17 +115,23 @@ struct SourceReaderView: View {
             .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.18)) { chrome.toggle() }
             }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if chrome { topBar }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if chrome { bottomBar }
+
+            if chrome {
+                VStack(spacing: 0) {
+                    topCapsule
+                    Spacer(minLength: 0)
+                    bottomCapsule
+                }
+                .transition(.opacity)
             }
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showDirectory) {
             directorySheet
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView(settings: settings)
         }
         .onAppear {
             if loadedIndex != index { load(index) }
@@ -136,106 +144,103 @@ struct SourceReaderView: View {
         }
     }
 
-    // MARK: - 顶栏 / 底栏
+    // MARK: - 统一悬浮胶囊工具条
 
-    private var topBar: some View {
-        HStack(spacing: 10) {
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 15, weight: .medium))
+    private var topCapsule: some View {
+        ReaderCapsule(dark: settings.theme.isDark) {
+            HStack(spacing: 2) {
+                ChromeIconButton(systemName: "chevron.left", tint: ink) {
+                    dismiss()
+                }
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.name)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(ink)
+                        .lineLimit(1)
+                    Text(source.name)
+                        .font(.system(size: 10))
+                        .foregroundStyle(ink.opacity(0.55))
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text("\(index + 1)/\(chapters.count)")
+                    .font(.system(size: 11))
+                    .monospacedDigit()
+                    .foregroundStyle(ink.opacity(0.55))
+                    .frame(minWidth: 52, alignment: .trailing)
             }
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(item.name)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
-                Text(source.name)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            if prefetching.isEmpty == false {
-                Text("预载 \(prefetching.count)")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-            }
+            .padding(.horizontal, 4)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
+        .padding(.horizontal, ReaderChromeMetrics.horizontalInset)
+        .padding(.top, ReaderChromeMetrics.topGap)
     }
 
-    private var bottomBar: some View {
-        HStack(spacing: 18) {
-            Button {
-                load(index - 1)
-            } label: {
-                Image(systemName: "chevron.left")
-            }
-            .disabled(index <= 0)
-
-            Button {
-                showDirectory = true
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "list.bullet")
-                    Text("\(index + 1)/\(chapters.count)")
-                        .font(.system(size: 11))
-                        .monospacedDigit()
-                }
-            }
-
-            Button {
-                load(index + 1)
-            } label: {
-                Image(systemName: "chevron.right")
-            }
-            .disabled(index + 1 >= chapters.count)
-
-            Menu {
-                Button {
-                    if speech.speaking {
-                        speech.stop()
-                    } else {
-                        speech.speak(text, key: chapters.indices.contains(index) ? chapters[index].link : item.link)
-                    }
-                } label: {
-                    Label(speech.speaking ? "停止朗读" : "朗读本章", systemImage: speech.speaking ? "stop.fill" : "speaker.wave.2")
+    private var bottomCapsule: some View {
+        ReaderCapsule(dark: settings.theme.isDark) {
+            HStack(spacing: 0) {
+                ChromeIconButton(systemName: "list.bullet", tint: ink) {
+                    showDirectory = true
                 }
 
-                if speech.speaking {
+                ChromeProgressTrack(fraction: chapterBinding, tint: ink) {
+                    saveProgress()
+                }
+                .padding(.horizontal, 2)
+
+                Menu {
                     Button {
-                        if speech.paused { speech.resume() } else { speech.pause() }
+                        toggleSpeech()
                     } label: {
-                        Label(speech.paused ? "继续朗读" : "暂停一下", systemImage: speech.paused ? "play.fill" : "pause.fill")
+                        Label(speech.speaking ? "停止朗读" : "朗读本章", systemImage: speech.speaking ? "stop.fill" : "speaker.wave.2")
                     }
+
+                    if speech.speaking {
+                        Button {
+                            if speech.paused { speech.resume() } else { speech.pause() }
+                        } label: {
+                            Label(speech.paused ? "继续朗读" : "暂停一下", systemImage: speech.paused ? "play.fill" : "pause.fill")
+                        }
+                    }
+
+                    Button("慢一点") { setSpeechRate(speech.rate - 0.05) }
+                    Button("快一点") { setSpeechRate(speech.rate + 0.05) }
+                } label: {
+                    Image(systemName: speech.speaking ? "speaker.wave.2.fill" : "speaker.wave.2")
+                        .font(.system(size: ReaderChromeMetrics.iconSize, weight: .medium))
+                        .foregroundStyle(ink)
+                        .frame(width: ReaderChromeMetrics.height, height: ReaderChromeMetrics.height)
+                        .contentShape(Rectangle())
                 }
 
-                Button("慢一点") { setSpeechRate(speech.rate - 0.05) }
-                Button("快一点") { setSpeechRate(speech.rate + 0.05) }
-            } label: {
-                Image(systemName: speech.speaking ? "speaker.wave.2.fill" : "speaker.wave.2")
+                ChromeIconButton(systemName: "textformat", tint: ink) {
+                    showSettings = true
+                }
             }
-
-            Menu {
-                Button("小一点") { setFont(fontSize - 1) }
-                Button("大一点") { setFont(fontSize + 1) }
-                Button("恢复默认") { setFont(18) }
-            } label: {
-                Image(systemName: "textformat.size")
-            }
+            .padding(.horizontal, 4)
         }
-        .font(.system(size: 15))
-        .padding(.horizontal, 24)
-        .padding(.vertical, 12)
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
+        .padding(.horizontal, ReaderChromeMetrics.horizontalInset)
+        .padding(.bottom, ReaderChromeMetrics.bottomGap)
+    }
+
+    private var chapterFraction: Double {
+        guard chapters.count > 1 else { return 0 }
+        return Double(min(max(index, 0), chapters.count - 1)) / Double(chapters.count - 1)
+    }
+
+    private var chapterBinding: Binding<Double> {
+        Binding(
+            get: { chapterFraction },
+            set: { jump(toFraction: $0) }
+        )
+    }
+
+    private func jump(toFraction fraction: Double) {
+        guard chapters.count > 1 else { return }
+        let span = Double(chapters.count - 1)
+        let target = Int((fraction * span).rounded())
+        load(min(chapters.count - 1, max(0, target)))
     }
 
     private var directorySheet: some View {
@@ -252,7 +257,7 @@ struct SourceReaderView: View {
                                 .monospacedDigit()
                                 .foregroundStyle(.tertiary)
                                 .frame(width: 34, alignment: .trailing)
-                        Text(TextScript.convert(Purifier.cleanTitle(chapters[i].name), mode: scriptMode))
+                            Text(TextScript.convert(Purifier.cleanTitle(chapters[i].name), mode: settings.scriptMode))
                                 .font(.system(size: 14))
                                 .foregroundStyle(i == index ? Color.accentColor : Color.primary)
                             if i == index {
@@ -275,26 +280,14 @@ struct SourceReaderView: View {
         }
     }
 
-    // MARK: - 抓取
+    // MARK: - 朗读
 
-    private func setFont(_ value: Double) {
-        fontSize = min(26, max(13, value))
-        UserDefaults.standard.set(fontSize, forKey: "sourceReaderFontSize")
-    }
-
-    /// 正文用哪款字体（在「设置」里选的），没选就是系统字体
-    private var readerFontName: String? {
-        UserDefaults.standard.string(forKey: "reader.fontName")
-    }
-
-    /// 正文是否加粗
-    private var bodyBold: Bool {
-        UserDefaults.standard.bool(forKey: "reader.boldBody")
-    }
-
-    /// 简繁显示方式
-    private var scriptMode: TextScript {
-        TextScript(rawValue: UserDefaults.standard.string(forKey: "reader.scriptMode") ?? "") ?? .auto
+    private func toggleSpeech() {
+        if speech.speaking {
+            speech.stop()
+        } else {
+            speech.speak(text, key: chapters.indices.contains(index) ? chapters[index].link : item.link)
+        }
     }
 
     /// 改语速后从本章开头重读，不然要等下一段才生效
@@ -304,6 +297,8 @@ struct SourceReaderView: View {
             speech.speak(text, key: chapters.indices.contains(index) ? chapters[index].link : item.link)
         }
     }
+
+    // MARK: - 抓取
 
     private func load(_ target: Int, force: Bool = false) {
         guard chapters.indices.contains(target) else { return }
