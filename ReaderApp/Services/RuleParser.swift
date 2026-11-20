@@ -24,7 +24,7 @@ enum RuleParser {
     // MARK: - 类型
 
     private enum Kind: Equatable {
-        case css, json, regex, xpath, unsupported
+        case css, json, regex, xpath, js, unsupported
     }
 
     private enum Step {
@@ -174,6 +174,13 @@ enum RuleParser {
             let source = plainString(of: node) ?? ""
             return regexMatches(part.path, in: source)
 
+        case .js:
+            let source = plainString(of: node) ?? ""
+            if let out = JSBridge.evaluate(script: part.path, result: source, baseUrl: base) {
+                return [out]
+            }
+            return []
+
         case .xpath, .unsupported:
             return []
         }
@@ -279,13 +286,28 @@ enum RuleParser {
         return spec
     }
 
+    /// 抽出 <js>...</js> 或 @js: 后面的脚本；不是 JS 规则返回 nil
+    private static func extractJs(_ body: String) -> String? {
+        if body.hasPrefix("@js:") {
+            return String(body.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard let regex = try? NSRegularExpression(pattern: "(?is)<js>(.*?)</js>") else { return nil }
+        let ns = body as NSString
+        let range = NSRange(location: 0, length: ns.length)
+        guard let match = regex.firstMatch(in: body, range: range), match.numberOfRanges > 1 else { return nil }
+        return ns.substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private static func parsePart(_ raw: String, unsupported: inout String?) -> Part? {
         var body = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard body.isEmpty == false else { return nil }
 
-        if body.hasPrefix("<js>") || body.hasPrefix("@js:") || body.contains("</js>") {
-            unsupported = "用了 JS 的规则（<js> / @js:），本 App 没有 JS 引擎"
-            return nil
+        if let script = Self.extractJs(body) {
+            if JSBridge.needsHostBinding(script) {
+                unsupported = "JS 规则用到了 java.ajax / org.jsoup 等宿主绑定，本机没实现"
+                return nil
+            }
+            return Part(kind: .js, path: script, steps: [])
         }
 
         var kind: Kind = .css

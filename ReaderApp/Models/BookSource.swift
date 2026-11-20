@@ -289,12 +289,14 @@ struct BookSource: Identifiable, Codable, Hashable {
     }
     """
 
-    /// 规则里有没有本机引擎做不到的东西（JS）。
+    /// 规则里有没有本机引擎做不到的东西（需要宿主绑定的 JS）。
     /// 这里只做字符串判断——一千条源在列表里每帧都要算，不能跑解析器
     var searchUnsupportedReason: String? {
         for raw in [search.url, search.body ?? "", search.list, search.name, search.link, search.cover,
                     explore.list, explore.name, explore.link, explore.cover] {
-            if raw.contains("<js>") || raw.contains("@js:") { return "JS 规则" }
+            if let script = JSBridge.script(in: raw), JSBridge.needsHostBinding(script) {
+                return "JS 规则需要宿主绑定"
+            }
         }
         return nil
     }
