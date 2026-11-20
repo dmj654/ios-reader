@@ -238,8 +238,8 @@ final class BackupStore: ObservableObject {
     /// 把当前配置推到 WebDAV 服务器
     func pushToWebDAV() {
         let web = WebDAVStore.shared
-        guard web.configured else { return }
         Task { @MainActor in
+            guard web.configured else { return }
             do {
                 let made = try makeBackup()
                 try await web.upload(backup: made.data, stamp: made.stamp)
@@ -252,8 +252,8 @@ final class BackupStore: ObservableObject {
     /// 启动时拉取：远端比本地新就恢复远端配置
     func pullFromWebDAV() {
         let web = WebDAVStore.shared
-        guard web.configured else { return }
         Task { @MainActor in
+            guard web.configured else { return }
             do {
                 guard let meta = try await web.remoteMeta() else { return }
                 let local = web.lastSyncedAt ?? .distantPast
