@@ -120,7 +120,7 @@ enum RuleParser {
             for step in part.steps {
                 guard case .descend(.css, let sub) = step else { continue }
                 guard sub.isEmpty == false else { continue }
-                if let found = try? root.select(sub), found.count() > 0 {
+                if let found = try? root.select(sub), found.array().isEmpty == false {
                     return found.array().map { RuleNode.html($0) }
                 }
             }
