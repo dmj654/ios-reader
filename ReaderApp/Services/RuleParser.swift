@@ -349,6 +349,12 @@ enum RuleParser {
 
         // 从右往左剥取值步骤
         var steps: [Step] = []
+        // Legado 的 tag.p.1 / td.2 / a.0：标签或类名后面跟 .数字 = 取第 N 个
+        if let dot = body.range(of: "\\.(\\d+)$", options: .regularExpression) {
+            let n = Int(body[dot].dropFirst()) ?? 0
+            body = String(body[body.startIndex..<dot.lowerBound])
+            steps.append(.index(n))
+        }
         while true {
             // Legado 的 !N 下标（tag.h2!0@text / class.list@tag.li!0），按位置落进步骤里
             if let found = body.range(of: "!\\d+$", options: .regularExpression) {
@@ -385,6 +391,15 @@ enum RuleParser {
                 steps.append(.attr(token.trimmingCharacters(in: .whitespaces)))
                 body = String(body[body.startIndex..<found.lowerBound])
                 continue
+            }
+            // Legado 常见：@title / @data-title 这类属性名
+            if let found = body.range(of: "@[A-Za-z][A-Za-z0-9]*$", options: .regularExpression) {
+                let name = String(body[found].dropFirst())
+                if ["text", "textNodes", "html", "content", "href", "src"].contains(name) == false {
+                    steps.append(.attr(name))
+                    body = String(body[body.startIndex..<found.lowerBound])
+                    continue
+                }
             }
             // Legado 常见：@data-src 这类带连字符的属性名
             if let found = body.range(of: "@[A-Za-z][A-Za-z0-9_]*-[A-Za-z0-9_-]*$", options: .regularExpression) {

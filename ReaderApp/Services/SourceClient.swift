@@ -326,50 +326,79 @@ enum SourceClient {
 
     static func chapterText(source: BookSource, chapter: SourceChapter) async throws -> String {
         let rule = source.content
-        let rawVar = expand(rule.url, keyword: "", page: 1, link: chapter.link, base: source.baseUrl)
-        let url = RuleParser.absolutize(rawVar, base: chapter.link)
+        let firstRaw = expand(rule.url, keyword: "", page: 1, link: chapter.link, base: source.baseUrl)
+        var url = RuleParser.absolutize(firstRaw, base: chapter.link)
 
-        let html = try await fetchText(url: url, source: source, method: "GET", body: nil,
-                                       referer: chapter.link, extraHeaders: [:])
+        var collected: [String] = []
+        var visited = Set<String>()
+        var page = 0
+        let maxPages = 10
 
-        guard let document = try? SwiftSoup.parse(html) else {
-            throw SourceFailure(message: "章节页解析失败")
-        }
+        while page < maxPages {
+            let html = try await fetchText(url: url, source: source, method: "GET", body: nil,
+                                           referer: chapter.link, extraHeaders: [:])
 
-        for selector in rule.remove {
-            let css = selector.hasPrefix("css:") ? String(selector.dropFirst(4)) : selector
-            if let elements = try? document.select(css) {
-                for element in elements.array() {
-                    try? element.remove()
+            guard let document = try? SwiftSoup.parse(html) else {
+                if collected.isEmpty { throw SourceFailure(message: "章节页解析失败") }
+                break
+            }
+
+            for selector in rule.remove {
+                let css = selector.hasPrefix("css:") ? String(selector.dropFirst(4)) : selector
+                if let elements = try? document.select(css) {
+                    for element in elements.array() {
+                        try? element.remove()
+                    }
                 }
             }
+
+            let root = RuleNode.html(document)
+            var text = RuleParser.string(rule.text, in: root, base: url)
+
+            // 规则没取到 / 取出来太短：按常见正文容器名兜底扫一遍
+            if (text ?? "").count < 20, let fallback = fallbackContent(document: document) {
+                text = fallback
+            }
+
+            guard var text = text else {
+                if collected.isEmpty {
+                    throw SourceFailure(message: "取不到正文，检查 content.text 规则（页面 \(html.count) 字）")
+                }
+                break
+            }
+
+            // Legado 的正文规则常以 @html 结尾，拿到的是标签，这里统一转成纯文本
+            if text.contains("<") && text.contains(">") {
+                text = RuleParser.plainText(html: text)
+            }
+
+            text = cleanLines(text, patterns: rule.removeLines)
+            if text.count < 20, let fallback = fallbackContent(document: document) {
+                text = cleanLines(fallback, patterns: rule.removeLines)
+            }
+            collected.append(text)
+
+            // 章节分多页：按 nextContentUrl 继续翻，直到没有下一页
+            guard rule.nextUrl.isEmpty == false else { break }
+            let nextRaw: String?
+            if nextUrlIsRule(rule.nextUrl) {
+                nextRaw = RuleParser.string(rule.nextUrl, in: root, base: url)
+            } else {
+                nextRaw = expand(rule.nextUrl, keyword: "", page: page + 2, link: chapter.link, base: source.baseUrl)
+            }
+            guard let nextRaw, nextRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else { break }
+            let nextURL = RuleParser.absolutize(nextRaw, base: url)
+            guard visited.contains(nextURL) == false, nextURL != url else { break }
+            visited.insert(nextURL)
+            url = nextURL
+            page += 1
         }
 
-        let root = RuleNode.html(document)
-        var text = RuleParser.string(rule.text, in: root, base: url)
-
-        // 规则没取到 / 取出来太短：按常见正文容器名兜底扫一遍
-        if (text ?? "").count < 20, let fallback = fallbackContent(document: document) {
-            text = fallback
+        let merged = collected.joined(separator: "\n")
+        if merged.count < 20 {
+            throw SourceFailure(message: "正文太短（\(merged.count) 字）；规则「\(rule.text)」可能没对上正文容器")
         }
-
-        guard var text = text else {
-            throw SourceFailure(message: "取不到正文，检查 content.text 规则（页面 \(html.count) 字）")
-        }
-
-        // Legado 的正文规则常以 @html 结尾，拿到的是标签，这里统一转成纯文本
-        if text.contains("<") && text.contains(">") {
-            text = RuleParser.plainText(html: text)
-        }
-
-        text = cleanLines(text, patterns: rule.removeLines)
-        if text.count < 20, let fallback = fallbackContent(document: document) {
-            text = cleanLines(fallback, patterns: rule.removeLines)
-        }
-        if text.count < 20 {
-            throw SourceFailure(message: "正文太短（\(text.count) 字），页面 \(html.count) 字；规则「\(rule.text)」可能没对上正文容器")
-        }
-        return text
+        return merged
     }
 
     /// 规则没匹配上时，按常见小说站正文容器名兜底，挑中文最多的一块

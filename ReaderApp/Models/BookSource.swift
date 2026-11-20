@@ -97,14 +97,17 @@ struct ContentRule: Codable, Hashable {
     var remove: [String] = []
     /// 逐行过滤的正则（去掉「请记住本站」这类行）
     var removeLines: [String] = []
+    /// 正文下一页（章节分多页时的翻页规则，对应 Legado nextContentUrl）
+    var nextUrl: String = ""
 
     init(url: String = "{{link}}", text: String = "", images: String = "",
-         remove: [String] = [], removeLines: [String] = []) {
+         remove: [String] = [], removeLines: [String] = [], nextUrl: String = "") {
         self.url = url
         self.text = text
         self.images = images
         self.remove = remove
         self.removeLines = removeLines
+        self.nextUrl = nextUrl
     }
 
     init(from decoder: Decoder) throws {
@@ -114,6 +117,7 @@ struct ContentRule: Codable, Hashable {
         images = try c.decodeIfPresent(String.self, forKey: .images) ?? ""
         remove = try c.decodeIfPresent([String].self, forKey: .remove) ?? []
         removeLines = try c.decodeIfPresent([String].self, forKey: .removeLines) ?? []
+        nextUrl = try c.decodeIfPresent(String.self, forKey: .nextUrl) ?? ""
     }
 }
 

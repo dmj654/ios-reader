@@ -120,7 +120,7 @@ enum LegadoBridge {
             var converted = BookSource(
                 name: name,
                 type: type,
-                baseUrl: baseUrl.hasSuffix("/") ? String(baseUrl.dropLast()) : baseUrl,
+                baseUrl: Self.cleanBaseUrl(baseUrl),
                 search: SearchRule(
                     url: searchUrl,
                     method: method,
@@ -142,7 +142,8 @@ enum LegadoBridge {
                 content: ContentRule(
                     url: "{{link}}",
                     text: type == .novel ? contentRule : "",
-                    images: type == .comic ? imageRule : ""
+                    images: type == .comic ? imageRule : "",
+                    nextUrl: string(contentMap, "nextContentUrl")
                 ),
                 headers: headers
             )
@@ -196,6 +197,12 @@ enum LegadoBridge {
     private static func string(_ dict: [String: Any], _ key: String) -> String {
         if let text = dict[key] as? String { return text }
         return ""
+    }
+
+    private static func cleanBaseUrl(_ raw: String) -> String {
+        var url = raw
+        if let hash = url.firstIndex(of: "#") { url = String(url[url.startIndex..<hash]) }
+        return url.hasSuffix("/") ? String(url.dropLast()) : url
     }
 
     /// 解析 Legado 的 exploreUrl：支持 JSON 数组，或「标题,链接」逐行文本
