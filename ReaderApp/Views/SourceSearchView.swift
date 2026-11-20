@@ -597,6 +597,10 @@ struct SourceBookView: View {
     @StateObject private var offline = OfflineCacheStore.shared
     @State private var cachedCount = 0
 
+    @State private var expandedIntro = false
+    @State private var showAllChapters = false
+    @State private var chapterFilter = ""
+
     struct Alternate: Identifiable {
         let id: UUID
         let item: SourceItem
@@ -654,10 +658,48 @@ struct SourceBookView: View {
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
+
+                        if vm.meta.status.isEmpty == false || vm.meta.wordCount.isEmpty == false || vm.meta.latestChapter.isEmpty == false {
+                            HStack(spacing: 6) {
+                                if vm.meta.status.isEmpty == false {
+                                    Text(vm.meta.status)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 1)
+                                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                                }
+                                if vm.meta.wordCount.isEmpty == false {
+                                    Text(vm.meta.wordCount)
+                                }
+                                if vm.meta.latestChapter.isEmpty == false {
+                                    Text("最新：\(vm.meta.latestChapter)")
+                                        .lineLimit(1)
+                                }
+                            }
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        }
                     }
                     Spacer(minLength: 0)
                 }
                 .padding(.vertical, 4)
+            }
+
+            if vm.meta.intro.isEmpty == false {
+                Section {
+                    Text(vm.meta.intro)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(expandedIntro ? nil : 6)
+                    Button {
+                        expandedIntro.toggle()
+                    } label: {
+                        Text(expandedIntro ? "收起简介" : "展开全部简介")
+                            .font(.footnote)
+                    }
+                } header: {
+                    Text("简介")
+                }
             }
 
             Section {
@@ -776,7 +818,7 @@ struct SourceBookView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "arrow.triangle.2.circlepath")
-                        Text(switching ? "正在别的源里找这本…" : "换源 · 在别的源找这本")
+                        Text(switching ? "正在别的源里找这本…" : "换源 · 当前：\(source.name)")
                             .frame(maxWidth: .infinity, alignment: .leading)
                         if switching {
                             ProgressView()
@@ -794,7 +836,7 @@ struct SourceBookView: View {
 
             if vm.chapters.isEmpty == false {
                 Section {
-                    ForEach(vm.chapters.prefix(300).indices, id: \.self) { index in
+                    ForEach(vm.chapters.prefix(50).indices, id: \.self) { index in
                         Button {
                             startIndex = index
                             reading = true
@@ -813,13 +855,15 @@ struct SourceBookView: View {
                             }
                         }
                     }
-                    if vm.chapters.count > 300 {
-                        Text("还有 \(vm.chapters.count - 300) 章未显示")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                    Button {
+                        chapterFilter = ""
+                        showAllChapters = true
+                    } label: {
+                        Label(vm.chapters.count > 50 ? "查看全部 \(vm.chapters.count) 章" : "查看目录", systemImage: "list.bullet")
+                            .frame(maxWidth: .infinity, alignment: .center)
                     }
                 } header: {
-                    Text("目录")
+                    Text("目录 · 共 \(vm.chapters.count) 章")
                 }
             }
         }
@@ -831,6 +875,9 @@ struct SourceBookView: View {
         }
         .sheet(isPresented: $showSwitch) {
             switchSheet
+        }
+        .sheet(isPresented: $showAllChapters) {
+            chapterSheet
         }
         .fullScreenCover(isPresented: $reading) {
             SourceReaderView(
@@ -895,6 +942,24 @@ struct SourceBookView: View {
     private var switchSheet: some View {
         NavigationStack {
             List {
+                Section {
+                    HStack(spacing: 10) {
+                        Image(systemName: "checkmark")
+                            .foregroundStyle(.tint)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(item.name)
+                                .font(.system(size: 15, weight: .medium))
+                                .lineLimit(1)
+                            Text("\(source.name) · 当前源")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                } footer: {
+                    Text("下面是别的源里搜到的同名书，点一条就切过去。")
+                }
+
                 if alternates.isEmpty {
                     Section {
                         if switching {
@@ -944,6 +1009,59 @@ struct SourceBookView: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    // MARK: - 全量目录
+
+    private var filteredChapters: [(index: Int, chapter: SourceChapter)] {
+        let keyword = chapterFilter.trimmingCharacters(in: .whitespacesAndNewlines)
+        if keyword.isEmpty {
+            return vm.chapters.enumerated().map { (index: $0.offset, chapter: $0.element) }
+        }
+        return vm.chapters.enumerated().compactMap { offset, chapter in
+            chapter.name.localizedCaseInsensitiveContains(keyword) ? (index: offset, chapter: chapter) : nil
+        }
+    }
+
+    private var chapterSheet: some View {
+        NavigationStack {
+            List {
+                let filtered = filteredChapters
+                if filtered.isEmpty {
+                    Text("没有匹配「\(chapterFilter)」的章节")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(filtered, id: \.index) { entry in
+                        Button {
+                            showAllChapters = false
+                            startIndex = entry.index
+                            reading = true
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text("\(entry.index + 1)")
+                                    .font(.system(size: 11))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.tertiary)
+                                    .frame(width: 30, alignment: .trailing)
+                                Text(Purifier.cleanTitle(entry.chapter.name))
+                                    .font(.system(size: 13))
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("目录 · \(vm.chapters.count) 章")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $chapterFilter, placement: .navigationBarDrawer(displayMode: .always))
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("关闭") { showAllChapters = false }
+                }
+            }
+        }
     }
 
     private func findAlternates() {

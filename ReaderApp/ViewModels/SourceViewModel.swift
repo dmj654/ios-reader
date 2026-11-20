@@ -36,6 +36,7 @@ final class SourceViewModel: ObservableObject {
 
     // 目录
     @Published var chapters: [SourceChapter] = []
+    @Published var meta = BookMeta()
     @Published var chaptersLoading = false
     @Published var chapterError: String?
 
@@ -208,8 +209,11 @@ final class SourceViewModel: ObservableObject {
         chaptersLoading = true
         chapterError = nil
         chapters = []
+        meta = BookMeta()
         do {
-            chapters = try await SourceClient.chapters(source: source, item: item)
+            let detail = try await SourceClient.chapters(source: source, item: item)
+            chapters = detail.chapters
+            meta = detail.meta
         } catch let failure as SourceFailure {
             chapterError = failure.message
         } catch {

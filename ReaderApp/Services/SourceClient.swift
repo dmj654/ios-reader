@@ -138,7 +138,7 @@ enum SourceClient {
 
     // MARK: - 目录
 
-    static func chapters(source: BookSource, item: SourceItem) async throws -> [SourceChapter] {
+    static func chapters(source: BookSource, item: SourceItem) async throws -> BookDetail {
         let rule = source.chapters
         let rawVar = expand(rule.url, keyword: item.name, page: 1, link: item.link, base: source.baseUrl)
         let url = RuleParser.absolutize(rawVar, base: item.link.isEmpty ? source.baseUrl : item.link)
@@ -169,7 +169,68 @@ enum SourceClient {
         if chapters.isEmpty {
             throw SourceFailure(message: "提取不到章节，检查 chapters 里的 name / link 规则")
         }
-        return chapters
+
+        let meta = extractMeta(html: html, chapters: chapters)
+        return BookDetail(chapters: chapters, meta: meta)
+    }
+
+    /// 从详情页 HTML 里捞简介、状态、字数；规则没有的就靠常见容器名兜底
+    private static func extractMeta(html: String, chapters: [SourceChapter]) -> BookMeta {
+        var meta = BookMeta()
+        meta.latestChapter = chapters.last?.name ?? ""
+
+        guard let doc = try? SwiftSoup.parse(html) else { return meta }
+
+        let introSelectors = [
+            "#intro", ".intro", "#description", ".description", ".book-intro",
+            ".book-summary", ".summary", ".desc", "#bookIntro", ".book-info .intro",
+            ".book-detail .intro", ".book-intro p", ".book-info .desc"
+        ]
+        for selector in introSelectors {
+            if let element = try? doc.select(selector).first(),
+               let text = try? element.text(),
+               text.trimmingCharacters(in: .whitespacesAndNewlines).count >= 10 {
+                meta.intro = cleanedIntro(text)
+                break
+            }
+        }
+        if meta.intro.isEmpty,
+           let tag = try? doc.select("meta[name=description]").first(),
+           let content = try? tag.attr("content"),
+           content.trimmingCharacters(in: .whitespacesAndNewlines).count >= 10 {
+            meta.intro = cleanedIntro(content)
+        }
+
+        let bodyText = (try? doc.body()?.text()) ?? ""
+
+        for keyword in ["已完结", "完结", "全本", "连载中", "连载", "暂停更新", "断更", "出版"] {
+            if bodyText.contains(keyword) {
+                meta.status = keyword
+                break
+            }
+        }
+
+        if let word = firstRegex(in: bodyText, pattern: "(\\d+(?:\\.\\d+)?万?)字") {
+            meta.wordCount = word
+        }
+
+        return meta
+    }
+
+    private static func cleanedIntro(_ raw: String) -> String {
+        var text = raw.replacingOccurrences(of: "\r", with: " ")
+        text = text.replacingOccurrences(of: "\n", with: " ")
+        text = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func firstRegex(in text: String, pattern: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: range),
+              match.numberOfRanges > 1,
+              let captured = Range(match.range(at: 1), in: text) else { return nil }
+        return String(text[captured])
     }
 
     // MARK: - 正文

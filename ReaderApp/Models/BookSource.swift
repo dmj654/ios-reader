@@ -288,10 +288,27 @@ struct SourceItem: Identifiable, Hashable {
     var sourceID: UUID
     var sourceName: String
     var type: SourceType
+    var intro: String = ""
+    var status: String = ""
+    var wordCount: String = ""
+    var latestChapter: String = ""
 }
 
 struct SourceChapter: Identifiable, Hashable {
     let id = UUID()
     var name: String
     var link: String
+}
+
+/// 详情页顺带抓到的书信息（简介 / 状态 / 字数 / 最新章）
+struct BookMeta: Hashable {
+    var intro: String = ""
+    var status: String = ""
+    var wordCount: String = ""
+    var latestChapter: String = ""
+}
+
+struct BookDetail: Hashable {
+    var chapters: [SourceChapter]
+    var meta: BookMeta
 }
