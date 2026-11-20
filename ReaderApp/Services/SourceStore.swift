@@ -11,6 +11,8 @@ import SwiftUI
 @MainActor
 final class SourceStore: ObservableObject {
 
+    static let shared = SourceStore()
+
     @Published var sources: [BookSource] = []
     @Published var lastError: String?
 

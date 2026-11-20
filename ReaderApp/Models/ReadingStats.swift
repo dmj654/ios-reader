@@ -167,6 +167,12 @@ final class ReadingStatsStore: ObservableObject {
         books = payload.books
     }
 
+    /// 从磁盘重新读统计（恢复备份后调用）
+    func reload() {
+        load()
+        revision &+= 1
+    }
+
     private func save() {
         let payload = StatsPayload(version: 1, days: days, books: books)
         guard let data = try? JSONEncoder().encode(payload) else { return }

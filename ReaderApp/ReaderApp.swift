@@ -14,6 +14,9 @@ struct ReaderApp: App {
     init() {
         // 自定义字体每次启动都要重新注册，否则读的是回退的系统字体
         _ = FontStore.shared
+        // iCloud 拉取远端配置；容器拿不到时自动降级，不影响本机使用
+        _ = BackupStore.shared
+        BackupStore.shared.pullFromICloud()
     }
 
     var body: some Scene {

@@ -11,6 +11,7 @@ struct SettingsView: View {
     @ObservedObject var settings: ReadingSettings
     var sources: SourceStore? = nil
     var books: [Book] = []
+    var shelf: BookshelfViewModel? = nil
     /// 作为底部「设置」tab 常驻时没有 sheet 可关闭
     var embedded: Bool = false
 
@@ -20,7 +21,9 @@ struct SettingsView: View {
     @State private var showStats = false
     @ObservedObject private var fonts = FontStore.shared
     @ObservedObject private var purifier = PurifierStore.shared
+    @ObservedObject private var backup = BackupStore.shared
     @State private var fontMessage: String?
+    @State private var backupMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -208,6 +211,43 @@ struct SettingsView: View {
                     Text("按规则删掉正文里的网址、广告、求票尾巴，也能改章节标题。规则改了立刻生效，不用重开书。")
                 }
 
+                Section {
+                    HStack(spacing: 8) {
+                        Image(systemName: backup.iCloudAvailable ? "icloud.fill" : "icloud.slash")
+                            .foregroundStyle(backup.iCloudAvailable ? .tint : .secondary)
+                        Text(backup.iCloudAvailable ? "iCloud 已连接" : "iCloud 不可用")
+                        Spacer()
+                        Text(backup.lastSyncedAt?.formatted(date: .abbreviated, time: .shortened) ?? "还没同步过")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Button {
+                        exportBackup()
+                    } label: {
+                        Label("导出备份文件", systemImage: "square.and.arrow.up")
+                    }
+
+                    Button {
+                        importBackup()
+                    } label: {
+                        Label("从备份恢复", systemImage: "arrow.down.circle")
+                    }
+
+                    if backup.iCloudAvailable {
+                        Button {
+                            backup.pushToICloud()
+                            backupMessage = "已同步到 iCloud。"
+                        } label: {
+                            Label("立即同步到 iCloud", systemImage: "icloud.and.arrow.up")
+                        }
+                    }
+                } header: {
+                    Text("备份与同步")
+                } footer: {
+                    Text("备份包含书架、阅读进度、书签、书源、净化规则、阅读统计、设置和字体；书籍本体不进备份，需通过「文件」App 另行拷贝。侧载签名下 iCloud 容器可能拿不到，这时用导出 / 导入备份文件即可。")
+                }
+
                 if let sources {
                     Section {
                         Button {
@@ -254,7 +294,7 @@ struct SettingsView: View {
                             .monospacedDigit()
                     }
                 } footer: {
-                    Text("本地阅读器 · 数据全部保存在本机，不联网同步。")
+                    Text("本地阅读器 · 数据保存在本机；可用备份文件导出 / 导入，开启 iCloud 后在同一 Apple ID 的设备间同步。")
                 }
             }
             .navigationTitle(embedded ? "设置" : "阅读设置")
@@ -282,6 +322,14 @@ struct SettingsView: View {
             } message: {
                 Text(fontMessage ?? "")
             }
+            .alert("备份", isPresented: Binding(
+                get: { backupMessage != nil },
+                set: { if $0 == false { backupMessage = nil } }
+            )) {
+                Button("知道了", role: .cancel) {}
+            } message: {
+                Text(backupMessage ?? "")
+            }
         }
     }
 
@@ -292,6 +340,30 @@ struct SettingsView: View {
                 let message = fonts.add(url)
                 try? await Task.sleep(nanoseconds: 350_000_000)
                 fontMessage = message
+            }
+        }
+    }
+
+    private func exportBackup() {
+        do {
+            let url = try backup.exportBackup()
+            DocumentPickerHost.presentExport(url: url) { _ in }
+        } catch {
+            backupMessage = "导出失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func importBackup() {
+        DocumentPickerHost.present(contentTypes: PickTypes.backup, allowsMultiple: false) { urls in
+            guard let url = urls.first else { return }
+            Task { @MainActor in
+                do {
+                    try backup.restore(from: url)
+                    backup.reloadAllStores(shelf: shelf)
+                    backupMessage = "恢复完成，书架、进度和书源已还原。"
+                } catch {
+                    backupMessage = "恢复失败：\(error.localizedDescription)"
+                }
             }
         }
     }

@@ -1,0 +1,233 @@
+//
+//  BackupStore.swift
+//  ReaderApp
+//
+//  备份 / 恢复：书架、进度、书签、书源、净化规则、阅读统计、设置、字体清单。
+//  - 本地备份：打成 .readerbackup（zip），存到「文件」App，换机再导入
+//  - iCloud：同一 Apple ID 下自动双向同步小配置；容器拿不到时自动降级到备份文件
+//  书籍本体（TXT/EPUB/PDF/CBZ）体积大，不进备份，需要通过「文件」App 另行拷贝。
+//
+
+import Foundation
+import ZIPFoundation
+
+enum BackupError: LocalizedError {
+    case message(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .message(let text): return text
+        }
+    }
+}
+
+final class BackupStore: ObservableObject {
+    static let shared = BackupStore()
+
+    @Published var iCloudAvailable = false
+    @Published var lastSyncedAt: Date?
+    @Published var statusText: String?
+    @Published var busy = false
+
+    private let fm = FileManager.default
+
+    private var docsDir: URL {
+        fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    }
+
+    private var appSupport: URL {
+        fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    }
+
+    /// iCloud Drive 容器里的同步目录；拿不到容器时为 nil（侧载签名常见）
+    private var iCloudSyncDir: URL? {
+        guard let root = fm.url(forUbiquityContainerIdentifier: nil) else { return nil }
+        return root.appendingPathComponent("ReaderSync", isDirectory: true)
+    }
+
+    private struct SyncMeta: Codable {
+        let exportedAt: Date
+    }
+
+    private init() {
+        refreshAvailability()
+    }
+
+    func refreshAvailability() {
+        iCloudAvailable = iCloudSyncDir != nil
+        lastSyncedAt = UserDefaults.standard.object(forKey: "backup.lastSyncedAt") as? Date
+    }
+
+    // MARK: - 收集要备份的内容
+
+    private func collectEntries() -> [(name: String, data: Data)] {
+        var entries: [(String, Data)] = []
+
+        func addFile(_ name: String, url: URL) {
+            guard let data = try? Data(contentsOf: url) else { return }
+            entries.append((name, data))
+        }
+
+        addFile("bookshelf.json", docsDir.appendingPathComponent("bookshelf.json"))
+        addFile("bookmarks.json", docsDir.appendingPathComponent("bookmarks.json"))
+        addFile("sources.json", docsDir.appendingPathComponent("Sources").appendingPathComponent("sources.json"))
+        addFile("purifiers.json", docsDir.appendingPathComponent("Purifiers.json"))
+        addFile("stats.json", appSupport.appendingPathComponent("ReadingStats").appendingPathComponent("stats.json"))
+
+        // 设置与阅读位置快照（readpos- 是在线阅读进度，单独保留；同步时间戳不备份）
+        let defaults = UserDefaults.standard
+        var snapshot: [String: Any] = [:]
+        for (key, value) in defaults.dictionaryRepresentation() {
+            guard key.hasPrefix("readpos-") == false, key != "backup.lastSyncedAt" else { continue }
+            snapshot[key] = value
+        }
+        if let data = try? JSONSerialization.data(withJSONObject: snapshot) {
+            entries.append(("settings.json", data))
+        }
+
+        // 字体文件（ttf / otf / ttc）
+        let fontsDir = docsDir.appendingPathComponent("Fonts")
+        if let names = try? fm.contentsOfDirectory(atPath: fontsDir.path) {
+            for name in names {
+                let ext = (name as NSString).pathExtension.lowercased()
+                guard ["ttf", "otf", "ttc"].contains(ext) else { continue }
+                if let data = try? Data(contentsOf: fontsDir.appendingPathComponent(name)) {
+                    entries.append(("fonts/\(name)", data))
+                }
+            }
+        }
+
+        return entries
+    }
+
+    // MARK: - 本地备份 / 恢复
+
+    /// 打包成 .readerbackup，返回临时文件路径（交给文件选择器导出）
+    func exportBackup() throws -> URL {
+        var entries = collectEntries()
+        let stamp = Date()
+        let meta = SyncMeta(exportedAt: stamp)
+        if let data = try? JSONEncoder().encode(meta) {
+            entries.append(("meta.json", data))
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmm"
+        let out = fm.temporaryDirectory
+            .appendingPathComponent("ReaderBackup-\(formatter.string(from: stamp)).readerbackup")
+        try? fm.removeItem(at: out)
+
+        let data = MiniZip.make(entries: entries)
+        try data.write(to: out, options: .atomic)
+        return out
+    }
+
+    /// 从备份包恢复（本地导入 / iCloud 拉取共用）
+    func restore(from url: URL) throws {
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+
+        guard let archive = Archive(url: url, accessMode: .read) else {
+            throw BackupError.message("备份包打不开，可能文件损坏")
+        }
+
+        var files: [String: Data] = [:]
+        for entry in archive where entry.type != .directory {
+            var data = Data()
+            do {
+                _ = try archive.extract(entry) { chunk in data.append(chunk) }
+            } catch {
+                continue
+            }
+            files[entry.path] = data
+        }
+
+        guard files["meta.json"] != nil else {
+            throw BackupError.message("这不是本 App 的备份包")
+        }
+
+        func write(_ name: String, to target: URL) {
+            guard let data = files[name] else { return }
+            try? fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: target, options: .atomic)
+        }
+
+        write("bookshelf.json", docsDir.appendingPathComponent("bookshelf.json"))
+        write("bookmarks.json", docsDir.appendingPathComponent("bookmarks.json"))
+        write("sources.json", docsDir.appendingPathComponent("Sources").appendingPathComponent("sources.json"))
+        write("purifiers.json", docsDir.appendingPathComponent("Purifiers.json"))
+        write("stats.json", appSupport.appendingPathComponent("ReadingStats").appendingPathComponent("stats.json"))
+
+        // 字体文件
+        for (path, data) in files where path.hasPrefix("fonts/") {
+            let name = String(path.dropFirst("fonts/".count))
+            guard name.isEmpty == false else { continue }
+            let target = docsDir.appendingPathComponent("Fonts").appendingPathComponent(name)
+            try? fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: target, options: .atomic)
+        }
+
+        // 设置快照
+        if let settingsData = files["settings.json"],
+           let snapshot = try? JSONSerialization.jsonObject(with: settingsData) as? [String: Any] {
+            let defaults = UserDefaults.standard
+            for (key, value) in snapshot {
+                defaults.set(value, forKey: key)
+            }
+        }
+    }
+
+    // MARK: - iCloud 自动同步
+
+    /// 把当前配置推到 iCloud（启动时、设置变更后可调用）
+    func pushToICloud() {
+        guard let dir = iCloudSyncDir else { return }
+        do {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            var entries = collectEntries()
+            let stamp = Date()
+            let meta = SyncMeta(exportedAt: stamp)
+            if let data = try? JSONEncoder().encode(meta) {
+                entries.append(("meta.json", data))
+            }
+            let data = MiniZip.make(entries: entries)
+            try data.write(to: dir.appendingPathComponent("backup.readerbackup"), options: .atomic)
+            UserDefaults.standard.set(stamp, forKey: "backup.lastSyncedAt")
+            lastSyncedAt = stamp
+        } catch {
+            statusText = "iCloud 上传失败：\(error.localizedDescription)"
+        }
+    }
+
+    /// 启动时拉取：远端比本地新就恢复远端配置
+    func pullFromICloud() {
+        guard let dir = iCloudSyncDir else { return }
+        let metaURL = dir.appendingPathComponent("meta.json")
+        guard let metaData = try? Data(contentsOf: metaURL),
+              let meta = try? JSONDecoder().decode(SyncMeta.self, from: metaData) else { return }
+
+        let local = lastSyncedAt ?? .distantPast
+        guard meta.exportedAt > local else { return }
+
+        let backupURL = dir.appendingPathComponent("backup.readerbackup")
+        do {
+            try restore(from: backupURL)
+            UserDefaults.standard.set(meta.exportedAt, forKey: "backup.lastSyncedAt")
+            lastSyncedAt = meta.exportedAt
+        } catch {
+            statusText = "iCloud 恢复失败：\(error.localizedDescription)"
+        }
+    }
+
+    /// 导入备份后，让各仓库重新读盘
+    @MainActor
+    func reloadAllStores(shelf: BookshelfViewModel?) {
+        shelf?.load()
+        shelf?.loadBookmarks()
+        shelf?.scan()
+        SourceStore.shared.load()
+        PurifierStore.shared.reload()
+        ReadingStatsStore.shared.reload()
+        FontStore.shared.refresh()
+    }
+}

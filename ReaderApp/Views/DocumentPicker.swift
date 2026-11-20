@@ -44,6 +44,22 @@ final class DocumentPickerHost: NSObject, UIDocumentPickerDelegate {
         presenter.present(picker, animated: true)
     }
 
+    /// 导出：把临时文件交给系统文件选择器，存到「文件」App 或其他位置
+    static func presentExport(url: URL, onPick: @escaping ([URL]) -> Void) {
+        guard let presenter = topViewController() else {
+            onPick([])
+            return
+        }
+        if active != nil { return }
+
+        let host = DocumentPickerHost(onPick: onPick)
+        active = host
+
+        let picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
+        picker.delegate = host
+        presenter.present(picker, animated: true)
+    }
+
     /// 从 key window 一路找最上层，注意可能是我们自己弹的 sheet
     static func topViewController() -> UIViewController? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
@@ -102,6 +118,11 @@ enum PickTypes {
             }
         }
         return types
+    }
+
+    /// 备份包（zip 容器，扩展名 .readerbackup）
+    static var backup: [UTType] {
+        [.zip, .archive, .item, .data]
     }
 
     /// 书源 JSON

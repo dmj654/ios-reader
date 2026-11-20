@@ -168,12 +168,13 @@ final class PurifierStore: ObservableObject {
     private init() {
         let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         url = dir.appendingPathComponent("Purifiers.json")
-        load()
+        reload()
     }
 
     var activeCount: Int { rules.filter { $0.enabled }.count }
 
-    private func load() {
+    /// 从磁盘重新读规则（恢复备份后调用）
+    func reload() {
         guard let data = try? Data(contentsOf: url),
               let decoded = try? JSONDecoder().decode([PurifyRule].self, from: data),
               decoded.isEmpty == false else {

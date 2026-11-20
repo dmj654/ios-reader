@@ -142,7 +142,7 @@ struct TextReaderView: View {
             stats.endSession()
         }
         .sheet(isPresented: $showPanels) { panelsSheet }
-        .sheet(isPresented: $showSettings) { SettingsView(settings: settings) }
+        .sheet(isPresented: $showSettings) { SettingsView(settings: settings, shelf: shelf) }
     }
 
     // MARK: - 正文

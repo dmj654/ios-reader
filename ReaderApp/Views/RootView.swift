@@ -11,7 +11,7 @@ struct RootView: View {
     @EnvironmentObject var shelf: BookshelfViewModel
 
     @StateObject private var settings = ReadingSettings()
-    @StateObject private var sources = SourceStore()
+    @StateObject private var sources = SourceStore.shared
 
     @State private var tab: RootTab = .shelf
     @State private var readerBook: Book?
@@ -36,7 +36,7 @@ struct RootView: View {
             }
             .tag(RootTab.search)
 
-            SettingsView(settings: settings, sources: sources, books: shelf.books, embedded: true)
+            SettingsView(settings: settings, sources: sources, books: shelf.books, shelf: shelf, embedded: true)
                 .tabItem {
                     Label("设置", systemImage: "gearshape")
                 }
@@ -44,6 +44,10 @@ struct RootView: View {
         }
         .fullScreenCover(item: $readerBook) { book in
             ReaderView(book: book, settings: settings)
+        }
+        .onAppear {
+            // iCloud 启动时已把远端配置写盘，这里让各仓库重新读一次
+            BackupStore.shared.reloadAllStores(shelf: shelf)
         }
     }
 }

@@ -56,14 +56,15 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: "NO"
         INFOPLIST_FILE: ReaderApp/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ReaderApp/ReaderApp.entitlements
         SWIFT_EMIT_LOC_STRINGS: "YES"
     info:
       path: ReaderApp/Info.plist
       properties:
         CFBundleDisplayName: "本地阅读器"
         CFBundleName: "本地阅读器"
-        CFBundleShortVersionString: "1.17.0"
-        CFBundleVersion: "35"
+        CFBundleShortVersionString: "1.18.0"
+        CFBundleVersion: "36"
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
         UIRequiresFullScreen: false
