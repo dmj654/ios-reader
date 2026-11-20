@@ -267,15 +267,11 @@ struct BookSource: Identifiable, Codable, Hashable {
     }
     """
 
-    /// 搜索规则里有没有本机引擎做不到的东西（JS），有就必然搜不到，提前排除
+    /// 规则里有没有本机引擎做不到的东西（JS）。
+    /// 这里只做字符串判断——一千条源在列表里每帧都要算，不能跑解析器
     var searchUnsupportedReason: String? {
-        // 地址模板是普通的 URL 串，只查有没有 JS
-        for raw in [search.url, search.body ?? "", search.headers.values.joined(separator: " ")] {
-            if raw.contains("<js>") || raw.contains("@js:") { return "JS" }
-        }
-        let rules = [search.list, search.name, search.link, search.cover]
-        for rule in rules where rule.isEmpty == false {
-            if let reason = RuleParser.unsupportedReason(rule) { return reason }
+        for raw in [search.url, search.body ?? "", search.list, search.name, search.link, search.cover] {
+            if raw.contains("<js>") || raw.contains("@js:") { return "JS 规则" }
         }
         return nil
     }

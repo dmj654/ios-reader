@@ -14,6 +14,8 @@ final class SourceStore: ObservableObject {
     @Published var sources: [BookSource] = []
     @Published var lastError: String?
 
+    private var pendingSave: DispatchWorkItem?
+
     private var storeURL: URL {
         sourcesDir.appendingPathComponent("sources.json")
     }
@@ -184,8 +186,11 @@ final class SourceStore: ObservableObject {
     }
 
     private func save() {
+        pendingSave?.cancel()
+        pendingSave = nil
+
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
+        // 一千条源的时候 prettyPrinted 会让文件大三四倍，写盘和读盘都变慢，这里压紧
         guard let data = try? encoder.encode(sources) else {
             lastError = "书源序列化失败，这次改动可能没存上"
             return
@@ -203,12 +208,32 @@ final class SourceStore: ObservableObject {
             return
         }
 
-        // 写完立刻读回来验一遍，确认下一次启动不会读不出来
-        if let readBack = SourceStore.decodeTolerant(storeURL), readBack.count == sources.count {
-            lastError = nil
+        // 写完读回来验一遍，确认下一次启动不会读不出来；条数多的时候跳过，省得每次开关都卡
+        if sources.count <= 200 {
+            if let readBack = SourceStore.decodeTolerant(storeURL), readBack.count == sources.count {
+                lastError = nil
+            } else {
+                lastError = "书源写入后校验不通过（\(sources.count) 条），下一次启动可能读不到"
+            }
         } else {
-            lastError = "书源写入后校验不通过（\(sources.count) 条），下一次启动可能读不到"
+            lastError = nil
         }
+    }
+
+    /// 改开关、搜完登记结果这种事不用每次立刻写盘，攒一下再写
+    private func scheduleSave() {
+        pendingSave?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            self?.save()
+        }
+        pendingSave = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: item)
+    }
+
+    /// 离开页面 / 退到后台时立刻落盘，防止攒着的改动丢
+    func flushPendingSave() {
+        guard pendingSave != nil else { return }
+        save()
     }
 
     /// 导出：把当前全部书源吐成 JSON，方便换机 / 重装后恢复
@@ -235,7 +260,7 @@ final class SourceStore: ObservableObject {
     func setEnabled(_ source: BookSource, enabled: Bool) {
         guard let index = sources.firstIndex(where: { $0.id == source.id }) else { return }
         sources[index].enabled = enabled
-        save()
+        scheduleSave()
     }
 
     // MARK: - 批量操作（一千条源的时候必备）
@@ -249,7 +274,7 @@ final class SourceStore: ObservableObject {
                 changed = true
             }
         }
-        if changed { save() }
+        if changed { scheduleSave() }
     }
 
     func remove(ids: Set<UUID>) {
@@ -273,7 +298,7 @@ final class SourceStore: ObservableObject {
             }
             sources[index].lastUsedAt = now
         }
-        save()
+        scheduleSave()
     }
 
     /// 全部分组（按出现次数从多到少），管理页用来做筛选菜单

@@ -22,6 +22,7 @@ struct SourceManagerView: View {
     @State private var pendingReport: SourceStore.ImportReport?
     @State private var report: SourceStore.ImportReport?
     @State private var showExport = false
+    @State private var showCheck = false
 
     // 一千条源要用得上：搜索、筛选、排序、多选、批量操作
     @State private var query = ""
@@ -129,8 +130,14 @@ struct SourceManagerView: View {
                 }
 
                 Section {
+                    quickActions
+                        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 8, trailing: 12))
+                        .listRowBackground(Color.clear)
+                }
+
+                Section {
                     if visibleSources.isEmpty {
-                        Text(store.sources.isEmpty ? "还没有书源。先到下面「导入」粘 JSON 或选 .json 文件。" : "当前筛选下没有书源，换个条件或清空搜索词。")
+                        Text(store.sources.isEmpty ? "还没有书源。用上面的「粘贴导入 / 文件导入」加进来。" : "当前筛选下没有书源，换个条件或清空搜索词。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -140,44 +147,7 @@ struct SourceManagerView: View {
                 } header: {
                     Text("书源 · 共 \(store.sources.count) 条 / 显示 \(visibleSources.count) 条")
                 } footer: {
-                    Text("小说源只参与小说搜索，下成 TXT；漫画源只参与漫画搜索，下成 CBZ。搜索会优先用「以前搜成功过」的源。")
-                }
-
-                Section {
-                    Button {
-                        editing = store.addTemplate(.novel)
-                    } label: {
-                        Label("新建小说源", systemImage: "plus")
-                    }
-                    Button {
-                        editing = store.addTemplate(.comic)
-                    } label: {
-                        Label("新建漫画源", systemImage: "plus")
-                    }
-                } header: {
-                    Text("新建")
-                }
-
-                Section {
-                    Button {
-                        showPaste = true
-                    } label: {
-                        Label("粘贴 JSON 导入", systemImage: "doc.on.clipboard")
-                    }
-                    Button {
-                        importBookSourcesFromFile()
-                    } label: {
-                        Label("从文件导入 .json", systemImage: "folder")
-                    }
-                    Button {
-                        showDoc = true
-                    } label: {
-                        Label("规则怎么写", systemImage: "questionmark.circle")
-                    }
-                } header: {
-                    Text("导入")
-                } footer: {
-                    Text("导入时会先检查规则是否完整，缺字段的书源会被挡下来并告诉你缺什么。")
+                    Text("小说源只参与小说搜索，下成 TXT；漫画源只参与漫画搜索，下成 CBZ。搜索优先用「以前搜成功过」的源。")
                 }
             }
             .navigationTitle("书源")
@@ -209,6 +179,32 @@ struct SourceManagerView: View {
                         }
                     } label: {
                         Image(systemName: "square.and.arrow.up")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            editing = store.addTemplate(.novel)
+                        } label: {
+                            Label("新建小说源", systemImage: "plus")
+                        }
+                        Button {
+                            editing = store.addTemplate(.comic)
+                        } label: {
+                            Label("新建漫画源", systemImage: "plus")
+                        }
+                        Button {
+                            showPaste = true
+                        } label: {
+                            Label("粘贴 JSON 导入", systemImage: "doc.on.clipboard")
+                        }
+                        Button {
+                            importBookSourcesFromFile()
+                        } label: {
+                            Label("从文件导入 .json", systemImage: "folder")
+                        }
+                    } label: {
+                        Image(systemName: "plus.circle")
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -244,6 +240,12 @@ struct SourceManagerView: View {
                 Button("知道了", role: .cancel) {}
             } message: {
                 Text(alertText ?? "")
+            }
+            .onDisappear {
+                store.flushPendingSave()
+            }
+            .sheet(isPresented: $showCheck) {
+                SourceCheckView(store: store)
             }
         }
     }
@@ -374,6 +376,34 @@ struct SourceManagerView: View {
         .buttonStyle(.plain)
     }
 
+    private var quickActions: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                actionChip("体检", icon: "stethoscope") { showCheck = true }
+                actionChip("新建小说源", icon: "plus") { editing = store.addTemplate(.novel) }
+                actionChip("新建漫画源", icon: "plus") { editing = store.addTemplate(.comic) }
+                actionChip("粘贴导入", icon: "doc.on.clipboard") { showPaste = true }
+                actionChip("文件导入", icon: "folder") { importBookSourcesFromFile() }
+                actionChip("规则说明", icon: "questionmark.circle") { showDoc = true }
+            }
+            .padding(.vertical, 1)
+        }
+    }
+
+    private func actionChip(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                Text(title)
+            }
+            .font(.system(size: 12, weight: .medium))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.accentColor.opacity(0.12), in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
     private var batchBar: some View {
         VStack(spacing: 8) {
             HStack {
@@ -481,10 +511,10 @@ struct SourceManagerView: View {
                 }
 
                 if let unsupported {
-                    Text("JS 规则用不了：\(unsupported)")
+                    Text("含 \(unsupported)，本机跑不了，搜索会跳过")
                         .font(.system(size: 10))
                         .foregroundStyle(.red)
-                        .lineLimit(2)
+                        .lineLimit(1)
                 } else if problems.isEmpty == false {
                     Text("缺 \(problems.joined(separator: "、"))")
                         .font(.system(size: 10))
@@ -526,10 +556,14 @@ struct SourceManagerView: View {
         }
     }
 
-    private static func relativeDescription(_ date: Date) -> String {
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: Date())
+        return formatter
+    }()
+
+    private static func relativeDescription(_ date: Date) -> String {
+        relativeFormatter.localizedString(for: date, relativeTo: Date())
     }
 
     private var pasteSheet: some View {

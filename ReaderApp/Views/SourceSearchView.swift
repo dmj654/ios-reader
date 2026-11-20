@@ -37,9 +37,9 @@ struct SourceSearchView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var vm = SourceViewModel()
     @State private var showManager = false
+    @State private var showCheck = false
     @State private var selected: SourceItem?
-    @State private var filter: SourceFilter = .all
-    @AppStorage("sourceSearchKeyword") private var storedKeyword = ""
+    @State private var filter: SourceFilter = .all    @AppStorage("sourceSearchKeyword") private var storedKeyword = ""
     @AppStorage("sourceSearchFilter") private var storedFilter = SourceFilter.all.rawValue
     /// 一次搜索最多动用多少个源（一千条源全发出去等于全超时）
     @AppStorage("sourceSearchLimit") private var searchLimit = 30
@@ -117,6 +117,9 @@ struct SourceSearchView: View {
                 }
                 .sheet(isPresented: $showManager) {
                     SourceManagerView(store: store)
+                }
+                .sheet(isPresented: $showCheck) {
+                    SourceCheckView(store: store)
                 }
                 .navigationDestination(item: $selected) { item in
                     if let source = store.sources.first(where: { $0.id == item.sourceID }) {
@@ -277,6 +280,22 @@ struct SourceSearchView: View {
                         .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                         .padding(.horizontal, 20)
                         .padding(.top, 8)
+                }
+
+                if vm.errorMessage != nil || activeSources.isEmpty == false {
+                    VStack(spacing: 6) {
+                        Button {
+                            showCheck = true
+                        } label: {
+                            Label("书源体检（找出哪些源真能搜到书）", systemImage: "stethoscope")
+                                .font(.system(size: 13, weight: .medium))
+                        }
+                        Text("一次测几十个源，直接告诉你哪些能用、哪些连不上，不用一千条一条条试。")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.top, 6)
                 }
             }
             .frame(maxWidth: .infinity)

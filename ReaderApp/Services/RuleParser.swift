@@ -114,6 +114,18 @@ enum RuleParser {
             if current.isEmpty == false { return current }
         }
 
+        // 兜底：容器 class 改名了，但里面的标签还在（class.book-list@tag.li → 直接全局找 li）
+        for part in spec.parts where part.kind == .css {
+            guard case .html(let root) = node else { continue }
+            for step in part.steps {
+                guard case .descend(.css, let sub) = step else { continue }
+                guard sub.isEmpty == false else { continue }
+                if let found = try? root.select(sub), found.count() > 0 {
+                    return found.array().map { RuleNode.html($0) }
+                }
+            }
+        }
+
         return []
     }
 
@@ -278,13 +290,20 @@ enum RuleParser {
 
         var kind: Kind = .css
 
-        // Legado 的排除写法：-id:xxx / -class:xxx 开头，等于「先去掉这个元素」
-        // 我们的选择是从整篇文档出发的，去掉一个容器基本不影响列表结果，直接剥掉前缀
+        // Legado 的排除写法：-id:xxx / -class:xxx / -tag:xxx 开头，等于「先去掉这个元素，再从整篇里选」
+        // 去掉一个容器对列表选择没有实质影响，这里直接改成「全局选 @ 后面的那段」
         if body.hasPrefix("-id:") || body.hasPrefix("-class:") || body.hasPrefix("-tag:") {
-            if let at = body.firstIndex(of: "@") {
-                body = String(body[at...])
-            } else {
-                return nil
+            guard let at = body.firstIndex(of: "@") else { return nil }
+            body = String(body[body.index(after: at)...])
+            if body.hasPrefix("tag.") {
+                body = String(body.dropFirst(4))
+                kind = .css
+            } else if body.hasPrefix("class.") {
+                body = "." + String(body.dropFirst(6))
+                kind = .css
+            } else if body.hasPrefix("id.") {
+                body = "#" + String(body.dropFirst(3))
+                kind = .css
             }
         }
 
@@ -329,15 +348,15 @@ enum RuleParser {
         }
 
         // 从右往左剥取值步骤
-        // 先摘掉末尾的 !N（Legado 的下标写法，class.book-list@tag.li!0）
-        var trailingIndex: Int?
-        if let found = body.range(of: "!\\d+$", options: .regularExpression) {
-            trailingIndex = Int(body[found].dropFirst())
-            body = String(body[body.startIndex..<found.lowerBound])
-        }
-
         var steps: [Step] = []
         while true {
+            // Legado 的 !N 下标（tag.h2!0@text / class.list@tag.li!0），按位置落进步骤里
+            if let found = body.range(of: "!\\d+$", options: .regularExpression) {
+                let n = Int(body[found].dropFirst()) ?? 0
+                steps.append(.index(n))
+                body = String(body[body.startIndex..<found.lowerBound])
+                continue
+            }
             if let found = body.range(of: "@(text|textNodes|html|content|href|src)$", options: .regularExpression) {
                 let token = String(body[found]).dropFirst()
                 switch token {
@@ -377,10 +396,6 @@ enum RuleParser {
             break
         }
         steps.reverse()
-
-        if let trailingIndex {
-            steps.append(.index(trailingIndex))
-        }
 
         body = body.trimmingCharacters(in: .whitespacesAndNewlines)
         if body.isEmpty && steps.isEmpty { return nil }

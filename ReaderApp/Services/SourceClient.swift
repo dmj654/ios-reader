@@ -420,9 +420,13 @@ enum SourceClient {
             return DebugOutput(detail: "请求：\(url)\n页面解析失败", html: html, pageURL: url)
         }
         let nodes = RuleParser.nodes(rule.list, in: root, base: url)
-        var lines = ["请求：\(url)", "搜索节点：\(nodes.count) 个"]
+        var lines = ["请求：\(url)", "抓到的页面：\(html.count) 字", "搜索节点：\(nodes.count) 个"]
         if nodes.isEmpty {
             lines.append("没有匹配到列表 → 检查 search.list")
+            let sample = html.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            lines.append("页面正文开头：\(String(sample.prefix(140))")
         } else {
             let names = nodes.prefix(3).compactMap { RuleParser.string(rule.name, in: $0, base: url) }
             let links = nodes.prefix(1).compactMap { RuleParser.string(rule.link, in: $0, base: url) }
