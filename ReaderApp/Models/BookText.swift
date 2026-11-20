@@ -10,19 +10,19 @@ import Foundation
 import CoreGraphics
 
 /// 章内插图：offset 为 chapter.text 中的 UTF-16 偏移
-struct ChapterImage: Hashable {
+struct ChapterImage: Codable, Hashable {
     var offset: Int
     var file: String
 }
 
-struct Chapter: Identifiable, Hashable {
+struct Chapter: Codable, Identifiable, Hashable {
     var id: UUID = UUID()
     var title: String
     var text: String
     var images: [ChapterImage] = []
 }
 
-struct BookText {
+struct BookText: Codable {
     /// 全文里的图片锚点（offset 为全文 UTF-16 偏移）
     struct ImageAnchor: Hashable {
         var offset: Int

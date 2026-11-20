@@ -629,16 +629,28 @@ struct TextReaderView: View {
         let format = book.format
         let fallbackTitle = book.title
         let targetImageDir = imageDir
+        let bookID = book.id
 
         let result: BookText? = await Task.detached(priority: .userInitiated) { () -> BookText? in
+            // 先看解析缓存：同一本书第二次打开直接秒开
+            if let cached = TextCache.load(bookID: bookID, source: url) {
+                return cached
+            }
+
+            let parsed: BookText?
             switch format {
             case .txt:
-                return TextLoader.load(url: url, fallbackTitle: fallbackTitle)
+                parsed = TextLoader.load(url: url, fallbackTitle: fallbackTitle)
             case .epub:
-                return EpubParser.load(url: url, imageDir: targetImageDir)
+                parsed = EpubParser.load(url: url, imageDir: targetImageDir)
             default:
-                return nil
+                parsed = nil
             }
+
+            if let parsed {
+                TextCache.save(parsed, bookID: bookID, source: url)
+            }
+            return parsed
         }.value
 
         guard let bookText = result else {
@@ -725,6 +737,7 @@ struct ReaderImageView: View {
     let theme: ReaderTheme
 
     @State private var image: UIImage?
+    @State private var failed = false
 
     var body: some View {
         ZStack {
@@ -732,6 +745,14 @@ struct ReaderImageView: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
+            } else if failed {
+                VStack(spacing: 6) {
+                    Image(systemName: "photo.badge.exclamationmark")
+                        .font(.title3)
+                    Text("插图文件不在了")
+                        .font(.caption)
+                }
+                .foregroundStyle(theme.foreground.opacity(0.45))
             } else {
                 ProgressView()
                     .tint(theme.foreground.opacity(0.6))
@@ -739,12 +760,16 @@ struct ReaderImageView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
-            guard image == nil else { return }
+            guard image == nil, failed == false else { return }
             let url = path
             let loaded = await Task.detached(priority: .userInitiated) { () -> UIImage? in
                 UIImage(contentsOfFile: url.path)
             }.value
-            image = loaded
+            if let loaded {
+                image = loaded
+            } else {
+                failed = true
+            }
         }
     }
 }

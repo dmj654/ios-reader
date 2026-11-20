@@ -187,8 +187,13 @@ enum EpubParser {
 
                 let entryPath = resolve(path: srcs[index], base: baseDir)
                 guard let data = read(entryPath: entryPath, from: archive),
-                      let size = pixelSize(of: data),
-                      size.width >= 300 || size.height >= 300 else { continue }
+                      let size = pixelSize(of: data) else { continue }
+
+                // 过滤装饰性小图 / 长条 banner，避免正文里插进一堆没内容的整页
+                let longSide = max(size.width, size.height)
+                let shortSide = min(size.width, size.height)
+                guard longSide >= 320 else { continue }
+                guard shortSide > 1, longSide / shortSide <= 4 else { continue }
 
                 nextIndex += 1
                 let fileName = String(format: "img_%04d.jpg", nextIndex)

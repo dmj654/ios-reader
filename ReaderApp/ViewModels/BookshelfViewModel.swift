@@ -308,6 +308,8 @@ final class BookshelfViewModel: ObservableObject {
 
     func delete(_ book: Book) {
         try? fm.removeItem(at: book.absoluteURL)
+        TextCache.remove(bookID: book.id)
+        TextCache.removeImages(bookID: book.id)
         books.removeAll { $0.id == book.id }
         save()
     }
