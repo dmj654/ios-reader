@@ -66,12 +66,15 @@ struct ChapterRule: Codable, Hashable {    var url: String = "{{link}}"
     var list: String = ""
     var name: String = ""
     var link: String = ""
+    /// 目录下一页：可以是 CSS/属性规则（css:a.next@href），也可以是带 {{page}} 的地址模板
+    var nextUrl: String = ""
 
-    init(url: String = "{{link}}", list: String = "", name: String = "", link: String = "") {
+    init(url: String = "{{link}}", list: String = "", name: String = "", link: String = "", nextUrl: String = "") {
         self.url = url
         self.list = list
         self.name = name
         self.link = link
+        self.nextUrl = nextUrl
     }
 
     init(from decoder: Decoder) throws {
@@ -80,6 +83,7 @@ struct ChapterRule: Codable, Hashable {    var url: String = "{{link}}"
         list = try c.decodeIfPresent(String.self, forKey: .list) ?? ""
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
         link = try c.decodeIfPresent(String.self, forKey: .link) ?? ""
+        nextUrl = try c.decodeIfPresent(String.self, forKey: .nextUrl) ?? ""
     }
 }
 

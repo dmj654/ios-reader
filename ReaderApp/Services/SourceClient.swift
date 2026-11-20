@@ -194,38 +194,73 @@ enum SourceClient {
 
     static func chapters(source: BookSource, item: SourceItem) async throws -> BookDetail {
         let rule = source.chapters
-        let rawVar = expand(rule.url, keyword: item.name, page: 1, link: item.link, base: source.baseUrl)
-        let url = RuleParser.absolutize(rawVar, base: item.link.isEmpty ? source.baseUrl : item.link)
-
-        let html = try await fetchText(url: url, source: source, method: "GET", body: nil,
-                                       referer: item.link, extraHeaders: [:])
-
-        guard let root = RuleParser.parseHTML(html) else {
-            throw SourceFailure(message: "目录页解析失败")
-        }
-
-        let listNodes = RuleParser.nodes(rule.list, in: root, base: url)
-        if listNodes.isEmpty {
-            throw SourceFailure(message: "目录页里没有匹配「\(rule.list)」的内容")
-        }
+        let firstRaw = expand(rule.url, keyword: item.name, page: 1, link: item.link, base: source.baseUrl)
+        var url = RuleParser.absolutize(firstRaw, base: item.link.isEmpty ? source.baseUrl : item.link)
 
         var chapters: [SourceChapter] = []
         var seen = Set<String>()
-        for node in listNodes {
-            guard let name = RuleParser.string(rule.name, in: node, base: url)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  let link = RuleParser.string(rule.link, in: node, base: url)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  link.isEmpty == false else { continue }
-            if seen.contains(link) { continue }
-            seen.insert(link)
-            chapters.append(SourceChapter(name: name.isEmpty ? "第 \(chapters.count + 1) 章" : name, link: link))
+        var visited = Set<String>()
+        var firstHTML = ""
+        var page = 0
+        let maxPages = 30
+
+        while page < maxPages {
+            let html = try await fetchText(url: url, source: source, method: "GET", body: nil,
+                                           referer: item.link, extraHeaders: [:])
+            if firstHTML.isEmpty { firstHTML = html }
+            guard let root = RuleParser.parseHTML(html) else {
+                if chapters.isEmpty { throw SourceFailure(message: "目录页解析失败") }
+                break
+            }
+
+            let listNodes = RuleParser.nodes(rule.list, in: root, base: url)
+            if chapters.isEmpty && listNodes.isEmpty {
+                throw SourceFailure(message: "目录页里没有匹配「\(rule.list)」的内容")
+            }
+
+            var added = 0
+            for node in listNodes {
+                guard let name = RuleParser.string(rule.name, in: node, base: url)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      let link = RuleParser.string(rule.link, in: node, base: url)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      link.isEmpty == false else { continue }
+                if seen.contains(link) { continue }
+                seen.insert(link)
+                chapters.append(SourceChapter(name: name.isEmpty ? "第 \(chapters.count + 1) 章" : name, link: link))
+                added += 1
+            }
+
+            // 目录分页：有下一页规则就继续翻；这一页没加新章就停，防死循环
+            guard rule.nextUrl.isEmpty == false, added > 0, page + 1 < maxPages else { break }
+
+            let nextRaw: String?
+            if nextUrlIsRule(rule.nextUrl) {
+                nextRaw = RuleParser.string(rule.nextUrl, in: root, base: url)
+            } else {
+                nextRaw = expand(rule.nextUrl, keyword: item.name, page: page + 2, link: item.link, base: source.baseUrl)
+            }
+            guard let nextRaw, nextRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else { break }
+            let nextURL = RuleParser.absolutize(nextRaw, base: url)
+            guard visited.contains(nextURL) == false, nextURL != url else { break }
+            visited.insert(nextURL)
+            url = nextURL
+            page += 1
         }
 
         if chapters.isEmpty {
             throw SourceFailure(message: "提取不到章节，检查 chapters 里的 name / link 规则")
         }
 
-        let meta = extractMeta(html: html, chapters: chapters)
+        let meta = extractMeta(html: firstHTML, chapters: chapters)
         return BookDetail(chapters: chapters, meta: meta)
+    }
+
+    /// nextTocUrl 是一条取值规则，还是纯地址模板
+    private static func nextUrlIsRule(_ raw: String) -> Bool {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.contains("@") { return true }
+        let prefixes = ["css:", "class.", "id.", "tag.", "@css:", "@xpath:", "@XPath:",
+                        "regex:", "json:", "$.", "$[", "//"]
+        return prefixes.contains { t.hasPrefix($0) }
     }
 
     /// 从详情页 HTML 里捞简介、状态、字数；规则没有的就靠常见容器名兜底

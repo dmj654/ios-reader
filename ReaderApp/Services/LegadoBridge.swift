@@ -136,7 +136,8 @@ enum LegadoBridge {
                     url: string(infoMap, "tocUrl").isEmpty ? "{{link}}" : string(infoMap, "tocUrl"),
                     list: string(tocMap, "chapterList"),
                     name: string(tocMap, "chapterName"),
-                    link: string(tocMap, "chapterUrl")
+                    link: string(tocMap, "chapterUrl"),
+                    nextUrl: string(tocMap, "nextTocUrl")
                 ),
                 content: ContentRule(
                     url: "{{link}}",
