@@ -34,6 +34,8 @@ enum RuleParser {
         case src
         case attr(String)
         case descend(Kind, String)
+        /// Legado 的 !N：取下标的第 N 个
+        case index(Int)
     }
 
     private struct Part {
@@ -63,29 +65,55 @@ enum RuleParser {
     /// 取一组节点（结果列表用）
     static func nodes(_ rule: String, in node: RuleNode, base: String) -> [RuleNode] {
         let spec = parse(rule)
-        for part in spec.parts where part.steps.isEmpty {
+
+        for part in spec.parts {
+            var current: [RuleNode] = []
+
             switch part.kind {
             case .css:
                 guard case .html(let root) = node else { continue }
                 guard let elements = try? root.select(part.path) else { continue }
-                return elements.array().map { RuleNode.html($0) }
+                current = elements.array().map { RuleNode.html($0) }
 
             case .json:
                 guard case .json(let any) = node else { continue }
-                var output: [RuleNode] = []
                 for value in jsonValues(path: part.path, root: any) {
                     if let array = value as? [Any] {
-                        output.append(contentsOf: array.map { RuleNode.json($0) })
+                        current.append(contentsOf: array.map { RuleNode.json($0) })
                     } else {
-                        output.append(.json(value))
+                        current.append(.json(value))
                     }
                 }
-                return output
 
             default:
                 continue
             }
+
+            // 列表规则里的继续下钻：class.book-list@tag.li 这种写法全靠这一步
+            for step in part.steps {
+                switch step {
+                case .descend(let kind, let sub):
+                    guard kind == .css else { continue }
+                    var next: [RuleNode] = []
+                    for item in current {
+                        guard case .html(let element) = item else { continue }
+                        if let found = try? element.select(sub) {
+                            next.append(contentsOf: found.array().map { RuleNode.html($0) })
+                        }
+                    }
+                    current = next
+
+                case .index(let n):
+                    current = (n >= 0 && n < current.count) ? [current[n]] : []
+
+                default:
+                    continue
+                }
+            }
+
+            if current.isEmpty == false { return current }
         }
+
         return []
     }
 
@@ -165,6 +193,10 @@ enum RuleParser {
 
             case .attr(let name):
                 return current.compactMap { hrefValue(of: $0, attribute: name, base: base) }
+
+            case .index(let n):
+                guard n >= 0, n < current.count else { return [] }
+                current = [current[n]]
             }
         }
 
@@ -246,6 +278,16 @@ enum RuleParser {
 
         var kind: Kind = .css
 
+        // Legado 的排除写法：-id:xxx / -class:xxx 开头，等于「先去掉这个元素」
+        // 我们的选择是从整篇文档出发的，去掉一个容器基本不影响列表结果，直接剥掉前缀
+        if body.hasPrefix("-id:") || body.hasPrefix("-class:") || body.hasPrefix("-tag:") {
+            if let at = body.firstIndex(of: "@") {
+                body = String(body[at...])
+            } else {
+                return nil
+            }
+        }
+
         if body.hasPrefix("@css:") {
             body = String(body.dropFirst(5))
             kind = .css
@@ -260,6 +302,9 @@ enum RuleParser {
             kind = .json
         } else if body.hasPrefix("class.") {
             body = "." + String(body.dropFirst(6))
+            kind = .css
+        } else if body.hasPrefix("id.") {
+            body = "#" + String(body.dropFirst(3))
             kind = .css
         } else if body.hasPrefix("tag.") {
             body = String(body.dropFirst(4))
@@ -284,12 +329,19 @@ enum RuleParser {
         }
 
         // 从右往左剥取值步骤
+        // 先摘掉末尾的 !N（Legado 的下标写法，class.book-list@tag.li!0）
+        var trailingIndex: Int?
+        if let found = body.range(of: "!\\d+$", options: .regularExpression) {
+            trailingIndex = Int(body[found].dropFirst())
+            body = String(body[body.startIndex..<found.lowerBound])
+        }
+
         var steps: [Step] = []
         while true {
-            if let found = body.range(of: "@(text|html|content|href|src)$", options: .regularExpression) {
+            if let found = body.range(of: "@(text|textNodes|html|content|href|src)$", options: .regularExpression) {
                 let token = String(body[found]).dropFirst()
                 switch token {
-                case "text": steps.append(.text)
+                case "text", "textNodes": steps.append(.text)
                 case "html", "content": steps.append(.html)
                 case "href": steps.append(.href)
                 default: steps.append(.src)
@@ -325,6 +377,10 @@ enum RuleParser {
             break
         }
         steps.reverse()
+
+        if let trailingIndex {
+            steps.append(.index(trailingIndex))
+        }
 
         body = body.trimmingCharacters(in: .whitespacesAndNewlines)
         if body.isEmpty && steps.isEmpty { return nil }

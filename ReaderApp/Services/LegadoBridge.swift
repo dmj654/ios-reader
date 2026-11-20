@@ -116,7 +116,7 @@ enum LegadoBridge {
             let contentRule = string(contentMap, "content")
             let imageRule = string(contentMap, "images").isEmpty ? contentRule : string(contentMap, "images")
 
-            let converted = BookSource(
+            var converted = BookSource(
                 name: name,
                 type: type,
                 baseUrl: baseUrl.hasSuffix("/") ? String(baseUrl.dropLast()) : baseUrl,
@@ -144,6 +144,7 @@ enum LegadoBridge {
                 ),
                 headers: headers
             )
+            converted.group = firstGroup(string(raw, "bookSourceGroup"))
 
             // 这条规则能不能跑，先探一下，省得用户装了才发现是 JS
             var reason: String?
@@ -168,6 +169,15 @@ enum LegadoBridge {
     }
 
     // MARK: - 取值小工具
+
+    /// Legado 的分组写成「A,B,C」，这里只留第一个，用来在管理页分组筛选
+    private static func firstGroup(_ raw: String) -> String? {
+        let parts = raw
+            .split(whereSeparator: { ",，;；|".contains($0) })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.isEmpty == false }
+        return parts.first
+    }
 
     private static func string(_ dict: [String: Any], _ key: String) -> String {
         if let text = dict[key] as? String { return text }

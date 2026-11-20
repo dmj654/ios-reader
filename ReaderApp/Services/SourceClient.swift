@@ -31,13 +31,14 @@ enum SourceClient {
     }
 
     static func fetchText(url: String, source: BookSource, method: String, body: String?,
-                          referer: String?, extraHeaders: [String: String]) async throws -> String {
+                          referer: String?, extraHeaders: [String: String],
+                          timeout: Double = 20) async throws -> String {
         guard let finalURL = URL(string: url) else {
             throw SourceFailure(message: "书源里的地址不合法：\(url)")
         }
 
         var request = URLRequest(url: finalURL)
-        request.timeoutInterval = 20
+        request.timeoutInterval = timeout
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
         let refererValue = (referer?.isEmpty == false ? referer! : source.baseUrl)
@@ -77,7 +78,7 @@ enum SourceClient {
 
     // MARK: - 搜索
 
-    static func search(source: BookSource, keyword: String, page: Int = 1) async throws -> [SourceItem] {
+    static func search(source: BookSource, keyword: String, page: Int = 1, timeout: Double = 12) async throws -> [SourceItem] {
         let rule = source.search
         let rawVar = expand(rule.url, keyword: keyword, page: page, link: "", base: source.baseUrl)
         let url = RuleParser.absolutize(rawVar, base: source.baseUrl)
@@ -89,7 +90,8 @@ enum SourceClient {
             method: rule.method,
             body: body,
             referer: source.baseUrl,
-            extraHeaders: rule.headers
+            extraHeaders: rule.headers,
+            timeout: timeout
         )
 
         guard let root = RuleParser.parseHTML(html) else {

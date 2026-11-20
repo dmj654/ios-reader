@@ -238,6 +238,59 @@ final class SourceStore: ObservableObject {
         save()
     }
 
+    // MARK: - 批量操作（一千条源的时候必备）
+
+    func setEnabled(ids: Set<UUID>, enabled: Bool) {
+        guard ids.isEmpty == false else { return }
+        var changed = false
+        for index in sources.indices where ids.contains(sources[index].id) {
+            if sources[index].enabled != enabled {
+                sources[index].enabled = enabled
+                changed = true
+            }
+        }
+        if changed { save() }
+    }
+
+    func remove(ids: Set<UUID>) {
+        guard ids.isEmpty == false else { return }
+        let before = sources.count
+        sources.removeAll { ids.contains($0.id) }
+        if sources.count != before { save() }
+    }
+
+    /// 一次搜索结束后统一登记各源的结果，只写一次盘
+    func applySearchOutcomes(_ outcomes: [UUID: Bool]) {
+        guard outcomes.isEmpty == false else { return }
+        let now = Date()
+        for index in sources.indices {
+            guard let success = outcomes[sources[index].id] else { continue }
+            if success {
+                sources[index].successCount += 1
+                sources[index].lastSuccessAt = now
+            } else {
+                sources[index].failCount += 1
+            }
+            sources[index].lastUsedAt = now
+        }
+        save()
+    }
+
+    /// 全部分组（按出现次数从多到少），管理页用来做筛选菜单
+    var groups: [String] {
+        var counts: [String: Int] = [:]
+        for source in sources {
+            guard let group = source.group, group.isEmpty == false else { continue }
+            counts[group, default: 0] += 1
+        }
+        return counts.keys.sorted { lhs, rhs in
+            let l = counts[lhs] ?? 0
+            let r = counts[rhs] ?? 0
+            if l != r { return l > r }
+            return lhs.localizedStandardCompare(rhs) == .orderedAscending
+        }
+    }
+
     /// 编辑器保存：JSON 重新解析，保留原来的 id
     func update(_ source: BookSource, json: String) -> String? {
         do {

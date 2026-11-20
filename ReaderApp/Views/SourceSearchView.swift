@@ -41,20 +41,32 @@ struct SourceSearchView: View {
     @State private var filter: SourceFilter = .all
     @AppStorage("sourceSearchKeyword") private var storedKeyword = ""
     @AppStorage("sourceSearchFilter") private var storedFilter = SourceFilter.all.rawValue
+    /// 一次搜索最多动用多少个源（一千条源全发出去等于全超时）
+    @AppStorage("sourceSearchLimit") private var searchLimit = 30
 
-    /// 当前分类下真正能用的源
+    /// 当前分类下真正能用的源（排掉规则残缺和只能靠 JS 的，它们必然搜不到）
     private var activeSources: [BookSource] {
         let enabled = store.enabledSources
-        guard let type = filter.type else { return enabled }
-        return enabled.filter { $0.type == type }
+        let base = filter.type == nil ? enabled : enabled.filter { $0.type == filter.type }
+        return base.filter { $0.searchUnsupportedReason == nil }
     }
 
-    /// 开着但规则不完整、没参与搜索的源
+    /// 这次实际会搜多少个源
+    private var effectiveCount: Int {
+        min(activeSources.count, max(1, searchLimit))
+    }
+
+    /// 开着但规则不完整 / 缺 JS 引擎、没参与搜索的源
     private var incompleteNotes: [String] {
-        store.sources
-            .filter { $0.enabled && (filter.type == nil || $0.type == filter.type) }
-            .filter { $0.baseUrl.isEmpty || $0.search.list.isEmpty }
-            .map { "「\($0.name)」规则不完整（\(SourceStore.problems(for: $0).joined(separator: "、"))），没参与搜索" }
+        let scoped = store.sources.filter { $0.enabled && (filter.type == nil || $0.type == filter.type) }
+        return scoped
+            .filter { $0.baseUrl.isEmpty || $0.search.list.isEmpty || $0.searchUnsupportedReason != nil }
+            .map { source -> String in
+                if let js = source.searchUnsupportedReason {
+                    return "「\(source.name)」用了 JS 规则（\(js)），本机没有 JS 引擎，没参与搜索"
+                }
+                return "「\(source.name)」规则不完整（\(SourceStore.problems(for: source).joined(separator: "、"))，没参与搜索"
+            }
     }
 
     var body: some View {
@@ -84,7 +96,7 @@ struct SourceSearchView: View {
                 )
                 .onSubmit(of: .search) {
                     storedKeyword = vm.keyword
-                    Task { await vm.search(sources: activeSources) }
+                    Task { await vm.search(sources: activeSources, limit: searchLimit, store: store) }
                 }
                 .onAppear {
                     if vm.keyword.isEmpty, storedKeyword.isEmpty == false {
@@ -99,6 +111,9 @@ struct SourceSearchView: View {
                     vm.results = []
                     vm.errorMessage = nil
                     vm.failures = []
+                    vm.failureBuckets = []
+                    vm.searchedCount = 0
+                    vm.plannedCount = 0
                 }
                 .sheet(isPresented: $showManager) {
                     SourceManagerView(store: store)
@@ -118,32 +133,93 @@ struct SourceSearchView: View {
     }
 
     private var filterBar: some View {
-        Picker("", selection: $filter) {
-            ForEach(SourceFilter.allCases) { item in
-                Text(item.title).tag(item)
+        VStack(spacing: 6) {
+            HStack(spacing: 10) {
+                Picker("", selection: $filter) {
+                    ForEach(SourceFilter.allCases) { item in
+                        Text(item.title).tag(item)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Menu {
+                    Picker("一次搜几个源", selection: $searchLimit) {
+                        Text("30 个").tag(30)
+                        Text("60 个").tag(60)
+                        Text("100 个").tag(100)
+                        Text("全部").tag(9999)
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "dial.medium")
+                        Text("\(effectiveCount)")
+                            .monospacedDigit()
+                    }
+                    .font(.system(size: 12, weight: .medium))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 6)
+                    .background(Color.secondary.opacity(0.14), in: Capsule())
+                }
             }
+            .padding(.horizontal, 16)
+
+            HStack(spacing: 5) {
+                Image(systemName: "info.circle")
+                Text("共 \(activeSources.count) 个可用源，按「以前搜成功过」优先取 \(effectiveCount) 个")
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 18)
         }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .background(.bar)
     }
 
     @ViewBuilder
     private var content: some View {
-        if vm.searching {
-            VStack(spacing: 12) {
-                ProgressView()
-                Text("正在搜索 \(activeSources.count) 个\(filter == .all ? "" : filter.title + "源")…")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        if vm.searching && vm.results.isEmpty {
+            searchingPlaceholder
         } else if vm.results.isEmpty {
             placeholder
         } else {
             resultList
         }
+    }
+
+    private var searchingPlaceholder: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+            Text("正在搜索 \(vm.searchedCount) / \(vm.plannedCount) 个源…")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+
+            if vm.results.isEmpty == false {
+                Text("已经找到 \(vm.results.count) 本")
+                    .font(.footnote)
+                    .foregroundStyle(.green)
+            }
+
+            Button(role: .destructive) {
+                vm.cancelSearch()
+            } label: {
+                Text("停止")
+                    .font(.footnote)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 7)
+                    .background(Color.red.opacity(0.12), in: Capsule())
+            }
+            .padding(.top, 4)
+
+            Text("每次只并发 6 个、每个最多等 12 秒，搜完一批就先出结果。")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+                .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var placeholder: some View {
@@ -170,7 +246,7 @@ struct SourceSearchView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 30)
                 } else {
-                    Text("会用 \(activeSources.map(\.name).joined(separator: "、")) 去搜")
+                    Text("共 \(activeSources.count) 个可用\(filter == .all ? "" : filter.title)源，这次会搜 \(effectiveCount) 个（按以前搜成功过优先）")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -210,6 +286,22 @@ struct SourceSearchView: View {
 
     private var resultList: some View {
         List {
+            if vm.searching {
+                Section {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("搜 \(vm.searchedCount) / \(vm.plannedCount) 个源，已命中 \(vm.results.count) 本")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                        Spacer()
+                        Button("停止") { vm.cancelSearch() }
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+
             if let error = vm.errorMessage {
                 Section {
                     Text(error)
@@ -218,19 +310,50 @@ struct SourceSearchView: View {
                 }
             }
 
-            if vm.failures.isEmpty == false || incompleteNotes.isEmpty == false {
+            if vm.failureBuckets.isEmpty == false || incompleteNotes.isEmpty == false {
                 Section {
-                    ForEach(Array(vm.failures.enumerated()), id: \.offset) { _, line in
-                        Text(line)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.orange)
-                            .textSelection(.enabled)
+                    ForEach(vm.failureBuckets) { bucket in
+                        HStack(spacing: 8) {
+                            Text("×\(bucket.count)")
+                                .font(.system(size: 11, weight: .semibold))
+                                .monospacedDigit()
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 2)
+                                .background(Color.orange, in: Capsule())
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(bucket.reason)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.primary)
+                                Text("例如「\(bucket.sample)」")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
-                    ForEach(Array(incompleteNotes.enumerated()), id: \.offset) { _, line in
+
+                    if vm.failures.isEmpty == false {
+                        DisclosureGroup("明细（前 \(vm.failures.count) 条）") {
+                            ForEach(Array(vm.failures.enumerated()), id: \.offset) { _, line in
+                                Text(line)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                    }
+
+                    ForEach(Array(incompleteNotes.prefix(4).enumerated()), id: \.offset) { _, line in
                         Text(line)
-                            .font(.system(size: 11))
+                            .font(.system(size: 10))
                             .foregroundStyle(.secondary)
                     }
+                    if incompleteNotes.count > 4 {
+                        Text("还有 \(incompleteNotes.count - 4) 个源规则不完整，去书源管理看")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
+
                     Button {
                         showManager = true
                     } label: {
@@ -239,6 +362,8 @@ struct SourceSearchView: View {
                     }
                 } header: {
                     Text("没出结果的源")
+                } footer: {
+                    Text("同一个原因合并成一条；「网络超时」多半是站点被墙或连不上，「403」是站点要 Cookie 或拦了非浏览器请求。")
                 }
             }
 

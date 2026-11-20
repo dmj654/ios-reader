@@ -17,8 +17,22 @@ final class SourceViewModel: ObservableObject {
     @Published var results: [SourceItem] = []
     @Published var searching = false
     @Published var errorMessage: String?
-    /// 每个源各自的失败原因，成功时也保留，方便排查
+    /// 每个源各自的失败原因，成功时也保留，方便排查（只留前几条明细，避免一千条刷屏）
     @Published var failures: [String] = []
+    /// 进度：已搜完 N 个 / 计划搜 M 个
+    @Published var searchedCount = 0
+    @Published var plannedCount = 0
+    /// 失败原因归并后的统计，一千条源看这个就够
+    @Published var failureBuckets: [FailureBucket] = []
+
+    struct FailureBucket: Identifiable, Hashable {
+        let id = UUID()
+        var reason: String
+        var count: Int
+        var sample: String
+    }
+
+    private var cancelRequested = false
 
     // 目录
     @Published var chapters: [SourceChapter] = []
@@ -34,7 +48,13 @@ final class SourceViewModel: ObservableObject {
 
     // MARK: - 搜索
 
-    func search(sources: [BookSource]) async {
+    func cancelSearch() {
+        cancelRequested = true
+    }
+
+    /// 一次最多搜 limit 个源，每批只并发 batchSize 个。
+    /// 一千条源同时发请求会把连接池和内存打满，全部超时 → 一本都搜不到。
+    func search(sources: [BookSource], limit: Int = 30, store: SourceStore? = nil) async {
         let text = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.isEmpty == false else { return }
 
@@ -43,48 +63,143 @@ final class SourceViewModel: ObservableObject {
             return
         }
 
+        cancelRequested = false
         searching = true
         errorMessage = nil
         results = []
         failures = []
+        failureBuckets = []
+        searchedCount = 0
 
-        var collected: [SourceItem] = []
+        // 一千条里先把「以前搜成功过、最近没失败」的挑出来
+        let queue = Array(prioritized(sources).prefix(max(1, limit)))
+        plannedCount = queue.count
+
+        let batchSize = 6
+        var seenLinks = Set<String>()
         var errors: [String] = []
+        var buckets: [String: (count: Int, sample: String)] = [:]
+        var outcomes: [UUID: Bool] = [:]
 
-        await withTaskGroup(of: (String, Result<[SourceItem], SourceFailure>).self) { group in
-            for source in sources {
-                group.addTask {
-                    do {
-                        return (source.name, .success(try await SourceClient.search(source: source, keyword: text)))
-                    } catch let failure as SourceFailure {
-                        return (source.name, .failure(failure))
-                    } catch {
-                        return (source.name, .failure(SourceFailure(message: error.localizedDescription)))
+        var start = 0
+        while start < queue.count {
+            if cancelRequested { break }
+            let end = min(start + batchSize, queue.count)
+            let slice = Array(queue[start..<end])
+
+            let batch = await withTaskGroup(of: (BookSource, Result<[SourceItem], SourceFailure>).self) {
+                group -> [(BookSource, Result<[SourceItem], SourceFailure>)] in
+                for source in slice {
+                    group.addTask {
+                        do {
+                            return (source, .success(try await SourceClient.search(source: source, keyword: text)))
+                        } catch let failure as SourceFailure {
+                            return (source, .failure(failure))
+                        } catch {
+                            return (source, .failure(SourceFailure(message: error.localizedDescription)))
+                        }
                     }
                 }
+                var collected: [(BookSource, Result<[SourceItem], SourceFailure>)] = []
+                for await item in group { collected.append(item) }
+                return collected
             }
-            for await (sourceName, result) in group {
+
+            if cancelRequested { break }
+
+            for (source, result) in batch {
                 switch result {
                 case .success(let items):
-                    collected.append(contentsOf: items)
+                    outcomes[source.id] = true
+                    for item in items where seenLinks.contains(item.link) == false {
+                        seenLinks.insert(item.link)
+                        results.append(item)
+                    }
                 case .failure(let failure):
-                    errors.append("「\(sourceName)」\(failure.message)")
+                    outcomes[source.id] = false
+                    errors.append("「\(source.name)」\(failure.message)")
+                    let key = Self.failureKey(failure.message)
+                    let existing = buckets[key]
+                    buckets[key] = (count: (existing?.count ?? 0) + 1,
+                                    sample: existing?.sample ?? source.name)
                 }
             }
+
+            start = end
+            searchedCount = start
         }
 
-        results = collected.sorted { lhs, rhs in
+        results.sort { lhs, rhs in
             let leftExact = lhs.name == text
             let rightExact = rhs.name == text
             if leftExact != rightExact { return leftExact }
             return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
-        failures = errors
+
+        failures = Array(errors.prefix(6))
+        failureBuckets = buckets
+            .map { FailureBucket(reason: $0.key, count: $0.value.count, sample: $0.value.sample) }
+            .sorted { lhs, rhs in
+                if lhs.count != rhs.count { return lhs.count > rhs.count }
+                return lhs.reason < rhs.reason
+            }
+
+        // 结果统一登记一次，只写一次盘（一千条也不卡）
+        store?.applySearchOutcomes(outcomes)
+
         searching = false
 
-        if collected.isEmpty {
-            errorMessage = errors.isEmpty ? "所有源都没搜到这条，换个关键词试试" : nil
+        if results.isEmpty {
+            if cancelRequested {
+                errorMessage = "已取消搜索"
+            } else if errors.isEmpty {
+                errorMessage = "所有源都没搜到这条，换个关键词试试"
+            }
         }
+    }
+
+    /// 排序：搜成功过的 → 最近成功过的 → 失败少的 → 名字
+    private func prioritized(_ sources: [BookSource]) -> [BookSource] {
+        sources.sorted { lhs, rhs in
+            if lhs.successCount != rhs.successCount { return lhs.successCount > rhs.successCount }
+            let leftDate = lhs.lastSuccessAt ?? Date.distantPast
+            let rightDate = rhs.lastSuccessAt ?? Date.distantPast
+            if leftDate != rightDate { return leftDate > rightDate }
+            if lhs.failCount != rhs.failCount { return lhs.failCount < rhs.failCount }
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    /// 把五花八门的报错压成人能看懂的几类
+    static func failureKey(_ message: String) -> String {
+        if message.contains("超时") || message.contains("timed out") || message.contains("The request timed out") {
+            return "网络超时：站点连不上或被墙"
+        }
+        if message.contains("网络请求失败") || message.contains("离线") || message.contains("Internet") {
+            return "网络请求失败：DNS / 连接被拦"
+        }
+        if message.contains("403") {
+            return "403：站点要 Cookie / 换 UA / 防盗链"
+        }
+        if message.contains("404") {
+            return "404：搜索地址失效"
+        }
+        if message.contains("5") && message.contains("服务器返回") {
+            return "5xx：站点自己出错"
+        }
+        if message.contains("页面内容为空") {
+            return "返回空页面：可能要登录或要验证码"
+        }
+        if message.contains("没有匹配") {
+            return "规则对不上页面：站点改版或 list 规则写错"
+        }
+        if message.contains("提取不到书名") {
+            return "取不到书名：name / link 规则写错"
+        }
+        if message.contains("地址不合法") {
+            return "搜索地址不合法"
+        }
+        return message
     }
 
     // MARK: - 目录

@@ -23,6 +23,95 @@ struct SourceManagerView: View {
     @State private var report: SourceStore.ImportReport?
     @State private var showExport = false
 
+    // 一千条源要用得上：搜索、筛选、排序、多选、批量操作
+    @State private var query = ""
+    @State private var kind: SourceKindFilter = .all
+    @State private var sortMode: SourceSortMode = .recentSuccess
+    @State private var groupFilter: String?
+    @State private var selecting = false
+    @State private var selectedIDs = Set<UUID>()
+
+    enum SourceKindFilter: String, CaseIterable, Identifiable {
+        case all, novel, comic, enabled, disabled, ready, broken
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .all: return "全部"
+            case .novel: return "小说"
+            case .comic: return "漫画"
+            case .enabled: return "已启用"
+            case .disabled: return "已停用"
+            case .ready: return "规则完整"
+            case .broken: return "缺东西"
+            }
+        }
+    }
+
+    enum SourceSortMode: String, CaseIterable, Identifiable {
+        case recentSuccess, successCount, name, recentUsed, failFirst
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .recentSuccess: return "最近能搜到的优先"
+            case .successCount: return "搜成功次数多"
+            case .name: return "按名称"
+            case .recentUsed: return "最近用过的"
+            case .failFirst: return "老是失败的优先"
+            }
+        }
+    }
+
+    /// 当前筛选 + 排序后的源
+    private var visibleSources: [BookSource] {
+        var list = store.sources
+
+        switch kind {
+        case .all: break
+        case .novel: list = list.filter { $0.type == .novel }
+        case .comic: list = list.filter { $0.type == .comic }
+        case .enabled: list = list.filter { $0.enabled }
+        case .disabled: list = list.filter { !$0.enabled }
+        case .ready: list = list.filter { SourceStore.problems(for: $0).isEmpty }
+        case .broken: list = list.filter { SourceStore.problems(for: $0).isEmpty == false }
+        }
+
+        if let groupFilter {
+            list = list.filter { ($0.group ?? "") == groupFilter }
+        }
+
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if text.isEmpty == false {
+            list = list.filter {
+                $0.name.lowercased().contains(text)
+                || $0.baseUrl.lowercased().contains(text)
+                || ($0.group ?? "").lowercased().contains(text)
+            }
+        }
+
+        switch sortMode {
+        case .recentSuccess:
+            list.sort { lhs, rhs in
+                if lhs.successCount != rhs.successCount { return lhs.successCount > rhs.successCount }
+                let l = lhs.lastSuccessAt ?? Date.distantPast
+                let r = rhs.lastSuccessAt ?? Date.distantPast
+                if l != r { return l > r }
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+            }
+        case .successCount:
+            list.sort { $0.successCount > $1.successCount }
+        case .name:
+            list.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .recentUsed:
+            list.sort { ($0.lastUsedAt ?? Date.distantPast) > ($1.lastUsedAt ?? Date.distantPast) }
+        case .failFirst:
+            list.sort { lhs, rhs in
+                if lhs.failCount != rhs.failCount { return lhs.failCount > rhs.failCount }
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+            }
+        }
+        return list
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -34,33 +123,31 @@ struct SourceManagerView: View {
                     }
                 }
                 Section {
-                    if store.novelSources.isEmpty {
-                        Text("还没有小说源")
+                    controlBar
+                        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 8, trailing: 12))
+                        .listRowBackground(Color.clear)
+                }
+
+                Section {
+                    if visibleSources.isEmpty {
+                        Text(store.sources.isEmpty ? "还没有书源。先到下面「导入」粘 JSON 或选 .json 文件。" : "当前筛选下没有书源，换个条件或清空搜索词。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(store.novelSources) { source in
+                    ForEach(visibleSources) { source in
                         row(source)
                     }
+                } header: {
+                    Text("书源 · 共 \(store.sources.count) 条 / 显示 \(visibleSources.count) 条")
+                } footer: {
+                    Text("小说源只参与小说搜索，下成 TXT；漫画源只参与漫画搜索，下成 CBZ。搜索会优先用「以前搜成功过」的源。")
+                }
+
+                Section {
                     Button {
                         editing = store.addTemplate(.novel)
                     } label: {
                         Label("新建小说源", systemImage: "plus")
-                    }
-                } header: {
-                    Text("小说源 · \(store.novelSources.count)")
-                } footer: {
-                    Text("只参与小说搜索，关注册后下载成 TXT。")
-                }
-
-                Section {
-                    if store.comicSources.isEmpty {
-                        Text("还没有漫画源")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(store.comicSources) { source in
-                        row(source)
                     }
                     Button {
                         editing = store.addTemplate(.comic)
@@ -68,9 +155,7 @@ struct SourceManagerView: View {
                         Label("新建漫画源", systemImage: "plus")
                     }
                 } header: {
-                    Text("漫画源 · \(store.comicSources.count)")
-                } footer: {
-                    Text("只参与漫画搜索，下下来打包成 CBZ。")
+                    Text("新建")
                 }
 
                 Section {
@@ -97,6 +182,16 @@ struct SourceManagerView: View {
             }
             .navigationTitle("书源")
             .navigationBarTitleDisplayMode(.inline)
+            .searchable(
+                text: $query,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: "搜名称 / 域名 / 分组"
+            )
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if selecting {
+                    batchBar
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
@@ -105,6 +200,12 @@ struct SourceManagerView: View {
                             alertText = "全部书源 JSON 已复制（\(store.sources.count) 条），可以保存到备忘录或发给自己。"
                         } label: {
                             Label("复制全部书源 JSON", systemImage: "doc.on.doc")
+                        }
+                        Button {
+                            selecting.toggle()
+                            if selecting == false { selectedIDs.removeAll() }
+                        } label: {
+                            Label(selecting ? "退出多选" : "多选 / 批量操作", systemImage: "checklist")
                         }
                     } label: {
                         Image(systemName: "square.and.arrow.up")
@@ -193,19 +294,198 @@ struct SourceManagerView: View {
         report = nil
     }
 
+    // MARK: - 筛选 / 排序 / 批量
+
+    private var controlBar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(SourceKindFilter.allCases) { item in
+                        chip(item.title, active: kind == item) { kind = item }
+                    }
+                }
+                .padding(.vertical, 1)
+            }
+
+            HStack(spacing: 8) {
+                Menu {
+                    Button("全部分组") { groupFilter = nil }
+                    ForEach(store.groups, id: \.self) { group in
+                        Button(group) { groupFilter = group }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "folder")
+                        Text(groupFilter ?? "全部分组")
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                    }
+                    .font(.system(size: 12))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(Color.secondary.opacity(0.14), in: Capsule())
+                }
+
+                Menu {
+                    ForEach(SourceSortMode.allCases) { mode in
+                        Button {
+                            sortMode = mode
+                        } label: {
+                            if sortMode == mode {
+                                Label(mode.title, systemImage: "checkmark")
+                            } else {
+                                Text(mode.title)
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.up.arrow.down")
+                        Text(sortMode.title)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                    }
+                    .font(.system(size: 12))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(Color.secondary.opacity(0.14), in: Capsule())
+                }
+
+                Spacer(minLength: 0)
+
+                if store.groups.isEmpty == false {
+                    Text("\(store.groups.count) 组")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+
+    private func chip(_ title: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12, weight: active ? .semibold : .regular))
+                .foregroundStyle(active ? Color.white : Color.primary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(active ? Color.accentColor : Color.secondary.opacity(0.14), in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var batchBar: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Text("已选 \(selectedIDs.count) / 当前 \(visibleSources.count)")
+                    .font(.footnote.weight(.medium))
+                    .monospacedDigit()
+                Spacer()
+                Button(selectedIDs.count == visibleSources.count ? "取消全选" : "全选当前") {
+                    if selectedIDs.count == visibleSources.count {
+                        selectedIDs.removeAll()
+                    } else {
+                        selectedIDs = Set(visibleSources.map(\.id))
+                    }
+                }
+                .font(.footnote)
+            }
+
+            HStack(spacing: 8) {
+                batchButton("启用", icon: "checkmark.circle", tint: .green) {
+                    store.setEnabled(ids: selectedIDs, enabled: true)
+                }
+                batchButton("停用", icon: "pause.circle", tint: .orange) {
+                    store.setEnabled(ids: selectedIDs, enabled: false)
+                }
+                batchButton("删除", icon: "trash", tint: .red) {
+                    let count = selectedIDs.count
+                    store.remove(ids: selectedIDs)
+                    selectedIDs.removeAll()
+                    alertText = "已删除 \(count) 条书源。"
+                }
+            }
+            .disabled(selectedIDs.isEmpty)
+            .opacity(selectedIDs.isEmpty ? 0.45 : 1)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
+        .overlay(alignment: .top) {
+            Divider()
+        }
+    }
+
+    private func batchButton(_ title: String, icon: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                Text(title)
+            }
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(tint)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 9)
+            .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+    }
+
     private func row(_ source: BookSource) -> some View {
         let problems = SourceStore.problems(for: source)
+        let unsupported = source.searchUnsupportedReason
+        let isSelected = selectedIDs.contains(source.id)
 
         return HStack(spacing: 12) {
+            if selecting {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 19))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            }
+
             VStack(alignment: .leading, spacing: 3) {
-                Text(source.name)
-                    .font(.system(size: 15, weight: .medium))
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(source.name)
+                        .font(.system(size: 15, weight: .medium))
+                        .lineLimit(1)
+                    if let group = source.group, group.isEmpty == false {
+                        Text(group)
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.12), in: Capsule())
+                    }
+                }
                 Text(source.baseUrl.isEmpty ? "未填地址" : source.baseUrl)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                if problems.isEmpty == false {
+
+                HStack(spacing: 6) {
+                    if source.successCount > 0 {
+                        Text("成功 \(source.successCount)")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.green)
+                    }
+                    if source.failCount > 0 {
+                        Text("失败 \(source.failCount)")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.orange)
+                    }
+                    if let last = source.lastSuccessAt {
+                        Text(Self.relativeDescription(last))
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                if let unsupported {
+                    Text("JS 规则用不了：\(unsupported)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                } else if problems.isEmpty == false {
                     Text("缺 \(problems.joined(separator: "、"))")
                         .font(.system(size: 10))
                         .foregroundStyle(.orange)
@@ -214,13 +494,21 @@ struct SourceManagerView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-            .onTapGesture { editing = source }
+            .onTapGesture {
+                if selecting {
+                    if isSelected { selectedIDs.remove(source.id) } else { selectedIDs.insert(source.id) }
+                } else {
+                    editing = source
+                }
+            }
 
-            Toggle("", isOn: Binding(
-                get: { source.enabled },
-                set: { store.setEnabled(source, enabled: $0) }
-            ))
-            .labelsHidden()
+            if selecting == false {
+                Toggle("", isOn: Binding(
+                    get: { source.enabled },
+                    set: { store.setEnabled(source, enabled: $0) }
+                ))
+                .labelsHidden()
+            }
         }
         .padding(.vertical, 2)
         .swipeActions(edge: .trailing) {
@@ -236,6 +524,12 @@ struct SourceManagerView: View {
             }
             .tint(.blue)
         }
+    }
+
+    private static func relativeDescription(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 
     private var pasteSheet: some View {

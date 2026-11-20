@@ -128,9 +128,16 @@ struct BookSource: Identifiable, Codable, Hashable {
     var search: SearchRule = SearchRule()
     var chapters: ChapterRule = ChapterRule()
     var content: ContentRule = ContentRule()
+    /// Legado 的 bookSourceGroup（多个组用逗号隔开，这里取第一个）
+    var group: String?
+    /// 搜索成功次数（用来把能用的源排前面）
+    var successCount: Int = 0
+    /// 搜索失败次数
+    var failCount: Int = 0
+    var lastSuccessAt: Date?
+    var lastUsedAt: Date?
 
     init() {}
-
     init(name: String, type: SourceType, baseUrl: String,
          search: SearchRule, chapters: ChapterRule, content: ContentRule,
          headers: [String: String] = [:]) {
@@ -145,6 +152,7 @@ struct BookSource: Identifiable, Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, baseUrl, headers, enabled, search, chapters, content
+        case group, successCount, failCount, lastSuccessAt, lastUsedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -158,6 +166,11 @@ struct BookSource: Identifiable, Codable, Hashable {
         search = try c.decodeIfPresent(SearchRule.self, forKey: .search) ?? SearchRule()
         chapters = try c.decodeIfPresent(ChapterRule.self, forKey: .chapters) ?? ChapterRule()
         content = try c.decodeIfPresent(ContentRule.self, forKey: .content) ?? ContentRule()
+        group = try c.decodeIfPresent(String.self, forKey: .group)
+        successCount = try c.decodeIfPresent(Int.self, forKey: .successCount) ?? 0
+        failCount = try c.decodeIfPresent(Int.self, forKey: .failCount) ?? 0
+        lastSuccessAt = try c.decodeIfPresent(Date.self, forKey: .lastSuccessAt)
+        lastUsedAt = try c.decodeIfPresent(Date.self, forKey: .lastUsedAt)
     }
 
     /// 供编辑界面用的格式化 JSON
@@ -253,6 +266,19 @@ struct BookSource: Identifiable, Codable, Hashable {
       }
     }
     """
+
+    /// 搜索规则里有没有本机引擎做不到的东西（JS），有就必然搜不到，提前排除
+    var searchUnsupportedReason: String? {
+        // 地址模板是普通的 URL 串，只查有没有 JS
+        for raw in [search.url, search.body ?? "", search.headers.values.joined(separator: " ")] {
+            if raw.contains("<js>") || raw.contains("@js:") { return "JS" }
+        }
+        let rules = [search.list, search.name, search.link, search.cover]
+        for rule in rules where rule.isEmpty == false {
+            if let reason = RuleParser.unsupportedReason(rule) { return reason }
+        }
+        return nil
+    }
 }
 
 // MARK: - 网络结果
