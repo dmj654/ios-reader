@@ -28,9 +28,11 @@ enum TextScript: String, CaseIterable, Codable, Identifiable {
         case .auto:
             return text
         case .simplified:
-            return text.applyingTransform(.traditionalToSimplifiedChinese, reverse: false) ?? text
+            let transform = StringTransform(rawValue: "TraditionalToSimplifiedChinese")
+            return text.applyingTransform(transform, reverse: false) ?? text
         case .traditional:
-            return text.applyingTransform(.simplifiedToTraditionalChinese, reverse: false) ?? text
+            let transform = StringTransform(rawValue: "SimplifiedToTraditionalChinese")
+            return text.applyingTransform(transform, reverse: false) ?? text
         }
     }
 }
