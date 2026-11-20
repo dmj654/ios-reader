@@ -274,8 +274,10 @@ final class BookshelfViewModel: ObservableObject {
 
         switch format {
         case .txt:
-            if let data = try? Data(contentsOf: url), let text = TextLoader.decode(data) {
-                total = text.utf16.count
+            // 只读开头一段拿书名，绝不把整本读进内存（大合集会把 App 撑爆）；
+            // 总字数留空，等真正打开时由阅读器补上
+            if let head = BookshelfViewModel.head(of: url, limit: 65_536),
+               let text = TextLoader.decode(head, allowPartial: true) {
                 let firstLine = text
                     .components(separatedBy: "\n")
                     .first { $0.trimmingCharacters(in: .whitespaces).isEmpty == false }?
@@ -302,6 +304,13 @@ final class BookshelfViewModel: ObservableObject {
         meta.author = author
         meta.total = total
         return meta
+    }
+
+    /// 只读文件开头一小段，用于嗅探 / 取标题，不占大内存
+    nonisolated static func head(of url: URL, limit: Int) -> Data? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        return try? handle.read(upToCount: limit)
     }
 
     // MARK: - 删除 / 进度

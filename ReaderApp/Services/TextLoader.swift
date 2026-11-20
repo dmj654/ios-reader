@@ -22,6 +22,21 @@ enum TextLoader {
         return String(data: data, encoding: .isoLatin1)
     }
 
+    /// 只判断「这段字节像不像文本」，不管解码出来是什么。
+    /// 采样自文件开头（可能正好把一个多字节字切一半），所以允许丢几个尾字节。
+    static func decode(_ data: Data, allowPartial: Bool) -> String? {
+        guard allowPartial else { return decode(data) }
+        if let s = decode(data) { return s }
+
+        // 从尾部往回丢最多 4 个字节再试一次，解决 UTF-8 / GB18030 被截断的问题
+        var trimmed = data
+        for _ in 0..<min(4, data.count) {
+            trimmed = trimmed.dropLast(1)
+            if let s = decode(trimmed) { return s }
+        }
+        return nil
+    }
+
     /// 读取 TXT
     static func load(url: URL, fallbackTitle: String) -> BookText {
         guard let data = try? Data(contentsOf: url),

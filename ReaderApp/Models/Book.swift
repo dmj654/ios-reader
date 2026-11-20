@@ -56,13 +56,21 @@ enum BookFormat: String, Codable, Hashable, CaseIterable {
             return .comic
         }
 
-        // 纯文本启发：无 NUL 字节且能被文本解码器读出来
-        if let data = try? Data(contentsOf: url), data.isEmpty == false {
-            let sample = data.prefix(4096)
-            if sample.contains(0) == false, TextLoader.decode(data) != nil {
-                return .txt
-            }
-        }
+        // 纯文本启发：只看开头一小段，绝不把整个文件读进内存。
+        // 以前这里 Data(contentsOf: url) 会把几百 MB 的 TXT 整个读进来，
+        // 大点的合集直接触发内存告警被系统杀掉，表现就是「导入不了 / 闪退」。
+        let sample = (try? handle.read(upToCount: 8192)) ?? Data()
+        guard sample.isEmpty == false else { return nil }
+        if sample.contains(0) { return nil }
+
+        // 控制字符太多基本是二进制（图片 / 压缩包），别硬当文本
+        let binaryCount = sample.filter { byte in
+            byte < 0x09 || (byte > 0x0D && byte < 0x20)
+        }.count
+        let binaryRatio = Double(binaryCount) / Double(sample.count)
+        if binaryRatio > 0.30 { return nil }
+
+        if TextLoader.decode(sample, allowPartial: true) != nil { return .txt }
         return nil
     }
 

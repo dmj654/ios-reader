@@ -681,6 +681,14 @@ struct TextReaderView: View {
                 author: bookText.author,
                 total: flatText.utf16.count
             )
+        } else if book.totalUnits <= 0, flatText.isEmpty == false {
+            // TXT 导入时为了不读整本，总字数故意留空；第一次打开这里补上，进度条才准
+            shelf.updateTitle(
+                bookID: book.id,
+                title: book.title,
+                author: book.author,
+                total: flatText.utf16.count
+            )
         }
 
         isLoading = false

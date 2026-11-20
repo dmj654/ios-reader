@@ -46,7 +46,8 @@ struct BookshelfView: View {
     @StateObject private var settings = ReadingSettings()
     @StateObject private var sources = SourceStore()
 
-    @State private var showPicker = false
+    @State private var showImportLog = false
+    @State private var importLog: [ImportLogItem] = []
     @State private var showSources = false
     @State private var selectedBook: Book?
     @State private var showSettings = false
@@ -120,38 +121,15 @@ struct BookshelfView: View {
                         Image(systemName: "slider.horizontal.3")
                     }
                     Button {
-                        showPicker = true
+                        startPicking()
                     } label: {
                         Image(systemName: "plus").fontWeight(.semibold)
                     }
                 }
             }
             .searchable(text: $query, isPresented: $searchActive, prompt: "搜索书名")
-            .sheet(isPresented: $showPicker) {
-                DocumentPicker(contentTypes: pickTypes, allowsMultiple: true) { urls in
-                    showPicker = false
-                    guard urls.isEmpty == false else { return }
-                    Task {
-                        importing = true
-                        importTotal = urls.count
-                        importDone = 0
-                        var failures: [String] = []
-                        for url in urls {
-                            if let error = await shelf.importBook(from: url) {
-                                failures.append(error)
-                            }
-                            importDone += 1
-                        }
-                        importing = false
-                        if failures.isEmpty {
-                            show("已导入 \(urls.count) 个文件")
-                        } else if failures.count == urls.count {
-                            show("导入失败：\(failures[0])")
-                        } else {
-                            show("导入 \(urls.count - failures.count) 个，失败 \(failures.count) 个：\(failures[0])")
-                        }
-                    }
-                }
+            .sheet(isPresented: $showImportLog) {
+                importLogSheet
             }
             .alert("提示", isPresented: Binding(
                 get: { shelf.alertMessage != nil },
@@ -203,15 +181,49 @@ struct BookshelfView: View {
         }
     }
 
-    private var pickTypes: [UTType] {
-        var types: [UTType] = [.item]
-        types.append(.plainText)
-        types.append(.pdf)
-        types.append(.zip)
-        for ext in ["epub", "cbz", "txt"] {
-            if let t = UTType(filenameExtension: ext) { types.append(t) }
+    private var pickTypes: [UTType] { PickTypes.books }
+
+    // MARK: - 导入（v1.8.1：选择器改顶层弹出 + 每个文件的诊断结果）
+
+    private func startPicking() {
+        DocumentPickerHost.present(contentTypes: pickTypes, allowsMultiple: true) { urls in
+            handlePicked(urls)
         }
-        return types
+    }
+
+    private func handlePicked(_ urls: [URL]) {
+        guard urls.isEmpty == false else { return }
+
+        Task {
+            importing = true
+            importTotal = urls.count
+            importDone = 0
+            var log: [ImportLogItem] = []
+
+            for url in urls {
+                let error = await shelf.importBook(from: url)
+                var item = ImportLogItem(
+                    name: url.lastPathComponent,
+                    size: BookshelfView.fileSize(of: url),
+                    format: BookFormat.detect(for: url)?.rawValue ?? "认不出格式"
+                )
+                item.error = error
+                log.append(item)
+                importDone += 1
+            }
+
+            importing = false
+            importLog = log
+            showImportLog = true
+            if log.allSatisfy({ $0.error == nil }) {
+                show("已导入 \(log.count) 个文件")
+            }
+        }
+    }
+
+    static func fileSize(of url: URL) -> Int64 {
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+        return Int64(values?.fileSize ?? 0)
     }
 
     // MARK: - 主体
@@ -509,6 +521,82 @@ struct CoverCell: View {
         if let image {
             cover = image
         }
+    }
+}
+
+// MARK: - 导入结果
+
+struct ImportLogItem: Identifiable {
+    let id = UUID()
+    let name: String
+    let size: Int64
+    var format: String
+    var error: String? = nil
+
+    var sizeText: String {
+        if size >= 1_048_576 { return String(format: "%.1f MB", Double(size) / 1_048_576.0) }
+        if size >= 1024 { return "\(size / 1024) KB" }
+        return "\(size) B"
+    }
+}
+
+extension BookshelfView {
+
+    var succeededCount: Int { importLog.filter { $0.error == nil }.count }
+
+    var importLogSheet: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(importLog) { item in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 6) {
+                                Image(systemName: item.error == nil ? "checkmark.circle.fill" : "xmark.octagon.fill")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(item.error == nil ? Color.green : Color.orange)
+                                Text(item.name)
+                                    .font(.footnote.weight(.medium))
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            Text("\(item.sizeText) · \(item.format)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            if let error = item.error {
+                                Text(error)
+                                    .font(.caption2)
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                } header: {
+                    Text(succeededCount == importLog.count
+                         ? "全部导入成功（\(importLog.count)）"
+                         : "成功 \(succeededCount) 个，失败 \(importLog.count - succeededCount) 个")
+                }
+
+                Section {
+                    Button {
+                        shelf.scan()
+                        showImportLog = false
+                        show("已重新扫描本地目录")
+                    } label: {
+                        Label("重新扫描「我的 iPhone」里的书", systemImage: "arrow.clockwise")
+                    }
+                } footer: {
+                    Text("如果上面全失败：文件必须是 TXT / EPUB / PDF / CBZ；iCloud 里的文件要先下载到本机；也可以在「文件」App 里长按文件 →「共享」→「拷贝到本地阅读器」。")
+                }
+            }
+            .navigationTitle("导入结果")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { showImportLog = false }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 

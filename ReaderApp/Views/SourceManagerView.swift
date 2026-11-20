@@ -15,7 +15,6 @@ struct SourceManagerView: View {
 
     @State private var showPaste = false
     @State private var pasteText = ""
-    @State private var showPicker = false
     @State private var editing: BookSource?
     @State private var showDoc = false
     @State private var alertText: String?
@@ -81,7 +80,7 @@ struct SourceManagerView: View {
                         Label("粘贴 JSON 导入", systemImage: "doc.on.clipboard")
                     }
                     Button {
-                        showPicker = true
+                        importBookSourcesFromFile()
                     } label: {
                         Label("从文件导入 .json", systemImage: "folder")
                     }
@@ -113,22 +112,6 @@ struct SourceManagerView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("关闭") { dismiss() }
-                }
-            }
-            .sheet(isPresented: $showPicker, onDismiss: {
-                if let pendingReport {
-                    report = pendingReport
-                    self.pendingReport = nil
-                }
-            }) {
-                DocumentPicker(contentTypes: [.json, .plainText, .item], allowsMultiple: false) { urls in
-                    showPicker = false
-                    guard let url = urls.first else { return }
-                    Task {
-                        importing = true
-                        pendingReport = await store.importFilePayload(at: url)
-                        importing = false
-                    }
                 }
             }
             .sheet(isPresented: $showPaste, onDismiss: {
@@ -164,8 +147,23 @@ struct SourceManagerView: View {
         }
     }
 
-    private func reportSheet(_ report: SourceStore.ImportReport) -> some View {
-        NavigationStack {
+    /// v1.8.1：选择器从顶层 VC 直接弹出，不再套 sheet
+    private func importBookSourcesFromFile() {
+        DocumentPickerHost.present(contentTypes: PickTypes.json, allowsMultiple: false) { urls in
+            guard let url = urls.first else { return }
+            Task {
+                importing = true
+                let result = await store.importFilePayload(at: url)
+                importing = false
+                // 等选择器完全收起来再弹结果，避免两个 presentation 打架
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    report = result
+                }
+            }
+        }
+    }
+
+    private func reportSheet(_ report: SourceStore.ImportReport) -> some View {        NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(report.lines.enumerated()), id: \.offset) { _, line in

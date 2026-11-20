@@ -2,49 +2,105 @@
 //  DocumentPicker.swift
 //  ReaderApp
 //
-//  用 UIKit 原生文件选择器替代 SwiftUI 的 .fileImporter。
-//  原因：iOS 18 上 SwiftUI 的 fileImporter 在多选状态下，点「打开」经常不回调，
-//  表现为「选了文件，点打开没反应」。原生选择器 + asCopy: true 稳定得多，
-//  而且会先把文件拷进 App 的临时目录，省掉一堆 security-scoped 的坑。
+//  文件选择器（v1.8.1）
+//  - 不再套在 SwiftUI 的 .sheet 里，改成从「当前最上层 ViewController」直接 present
+//    原因：iOS 18 上把 UIDocumentPickerViewController 塞进 .sheet，会出现
+//    「选择器里一片空白」「选完文件不回调」「点打开没反应」这类问题。
+//  - asCopy: true：系统先把文件拷到 App 沙盒，省掉 security-scoped 的坑
+//  - 回调保证只在主线程发生一次（成功、取消、失败都走）
 //
 
-import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
-struct DocumentPicker: UIViewControllerRepresentable {
+final class DocumentPickerHost: NSObject, UIDocumentPickerDelegate {
 
-    let contentTypes: [UTType]
-    let allowsMultiple: Bool
-    let onPick: ([URL]) -> Void
+    /// 选择器只弱引用 delegate，必须在这里握住，否则会提前释放导致「选完没反应」
+    private static var active: DocumentPickerHost?
 
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+    private let onPick: ([URL]) -> Void
+
+    private init(onPick: @escaping ([URL]) -> Void) {
+        self.onPick = onPick
+        super.init()
+    }
+
+    static func present(contentTypes: [UTType], allowsMultiple: Bool, onPick: @escaping ([URL]) -> Void) {
+        guard let presenter = topViewController() else {
+            onPick([])
+            return
+        }
+
+        // 已经有一个在选择中，先别叠一个
+        if active != nil { return }
+
+        let host = DocumentPickerHost(onPick: onPick)
+        active = host
+
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: contentTypes, asCopy: true)
         picker.allowsMultipleSelection = allowsMultiple
         picker.shouldShowFileExtensions = true
-        picker.delegate = context.coordinator
-        return picker
+        picker.delegate = host
+        presenter.present(picker, animated: true)
     }
 
-    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+    /// 从 key window 一路找最上层，注意可能是我们自己弹的 sheet
+    static func topViewController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let windows = scenes.flatMap { $0.windows }
+        guard let window = windows.first(where: { $0.isKeyWindow }) ?? windows.first else { return nil }
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onPick: onPick)
+        var controller = window.rootViewController
+        while let presented = controller?.presentedViewController {
+            // 弹出的选择器本身不要再往里钻
+            if presented is UIDocumentPickerViewController { break }
+            controller = presented
+        }
+        if controller is UIDocumentPickerViewController { return nil }
+        return controller
     }
 
-    final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        private let onPick: ([URL]) -> Void
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        complete(urls)
+    }
 
-        init(onPick: @escaping ([URL]) -> Void) {
-            self.onPick = onPick
-        }
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        complete([])
+    }
 
-        func documentPicker(_ controller: UIDocumentPickerViewController,
-                            didPickDocumentsAt urls: [URL]) {
-            onPick(urls)
+    private func complete(_ urls: [URL]) {
+        let callback = onPick
+        // 之后再放掉自己，保证本次调用期间对象还活着
+        DispatchQueue.main.async {
+            DocumentPickerHost.active = nil
         }
+        callback(urls)
+    }
+}
 
-        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-            onPick([])
+// MARK: - 方便调用的类型集合
+
+enum PickTypes {
+
+    /// 书籍：给最宽的 .item，避免某些来源的文件在选择器里被灰掉点不动
+    static var books: [UTType] {
+        var types: [UTType] = [.item, .data, .content, .text, .pdf, .zip, .archive]
+        for ext in ["epub", "cbz", "cbr", "txt", "text"] {
+            if let type = UTType(filenameExtension: ext) {
+                types.append(type)
+            }
         }
+        return types
+    }
+
+    /// 书源 JSON
+    static var json: [UTType] {
+        var types: [UTType] = [.json, .plainText, .item]
+        for ext in ["json", "txt", "legado"] {
+            if let type = UTType(filenameExtension: ext) {
+                types.append(type)
+            }
+        }
+        return types
     }
 }
