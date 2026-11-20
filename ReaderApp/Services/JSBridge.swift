@@ -93,8 +93,10 @@ enum JSBridge {
         // 脚本最后可能把结果写进 result 变量，优先取返回值，其次取 result
         if let out = value?.toString(), out.isEmpty == false { return out }
         let resultValue = context.objectForKeyedSubscript("result")
-        let resultText = resultValue.toString()
-        if resultText.isEmpty == false { return resultText }
+        if let resultValue = resultValue {
+            let resultText = resultValue.toString()
+            if resultText.isEmpty == false { return resultText }
+        }
         return nil
     }
 
