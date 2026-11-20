@@ -311,8 +311,15 @@ enum SourceClient {
         }
 
         let root = RuleNode.html(document)
-        guard var text = RuleParser.string(rule.text, in: root, base: url) else {
-            throw SourceFailure(message: "取不到正文，检查 content.text 规则")
+        var text = RuleParser.string(rule.text, in: root, base: url)
+
+        // 规则没取到 / 取出来太短：按常见正文容器名兜底扫一遍
+        if (text ?? "").count < 20, let fallback = fallbackContent(document: document) {
+            text = fallback
+        }
+
+        guard var text = text else {
+            throw SourceFailure(message: "取不到正文，检查 content.text 规则（页面 \(html.count) 字）")
         }
 
         // Legado 的正文规则常以 @html 结尾，拿到的是标签，这里统一转成纯文本
@@ -321,10 +328,49 @@ enum SourceClient {
         }
 
         text = cleanLines(text, patterns: rule.removeLines)
+        if text.count < 20, let fallback = fallbackContent(document: document) {
+            text = cleanLines(fallback, patterns: rule.removeLines)
+        }
         if text.count < 20 {
-            throw SourceFailure(message: "正文太短（\(text.count) 字），可能是站点换了正文容器")
+            throw SourceFailure(message: "正文太短（\(text.count) 字），页面 \(html.count) 字；规则「\(rule.text)」可能没对上正文容器")
         }
         return text
+    }
+
+    /// 规则没匹配上时，按常见小说站正文容器名兜底，挑中文最多的一块
+    private static let fallbackContentSelectors = [
+        "#content", ".content", "#chapter-content", ".chapter-content",
+        "#chaptercontent", ".chaptercontent", "#BookText", ".BookText",
+        "#novelcontent", ".novel-content", ".article-content", ".article",
+        "article", ".read-content", ".readcontent", "#htmlContent",
+        ".post-content", ".entry-content", ".txt", ".txt-content", "#nr1",
+        ".nr1", ".chapter-body", ".text-content", "#contentbox", ".contentbox",
+        ".main-content", ".book-content", "#chapterBody", ".chapterBody",
+        ".novel_content", "#novel_content", ".chapter-content-body", "#BookContent",
+        ".BookContent", "#chaptertext", ".chaptertext"
+    ]
+
+    private static func fallbackContent(document: Document) -> String? {
+        var best = ""
+        for selector in fallbackContentSelectors {
+            guard let element = try? document.select(selector).first() else { continue }
+            let raw = (try? element.outerHtml()) ?? ""
+            let candidate = RuleParser.plainText(html: raw)
+            if chineseCount(candidate) > chineseCount(best) { best = candidate }
+        }
+        // 再退一步：正文段落最多的直接子容器
+        if chineseCount(best) < 20, let body = try? document.body() {
+            for element in body.children().array() {
+                let raw = (try? element.outerHtml()) ?? ""
+                let candidate = RuleParser.plainText(html: raw)
+                if chineseCount(candidate) > chineseCount(best) { best = candidate }
+            }
+        }
+        return best.count >= 20 ? best : nil
+    }
+
+    private static func chineseCount(_ text: String) -> Int {
+        text.reduce(0) { $1.isChinese ? $0 + 1 : $0 }
     }
 
     static func chapterImages(source: BookSource, chapter: SourceChapter) async throws -> [String] {
@@ -588,5 +634,14 @@ enum SourceClient {
             if drop == false { kept.append(line) }
         }
         return kept.joined(separator: "\n")
+    }
+}
+
+private extension Character {
+    var isChinese: Bool {
+        guard let scalar = unicodeScalars.first else { return false }
+        return (0x4E00...0x9FFF).contains(scalar.value)
+            || (0x3400...0x4DBF).contains(scalar.value)
+            || (0x20000...0x2A6DF).contains(scalar.value)
     }
 }
