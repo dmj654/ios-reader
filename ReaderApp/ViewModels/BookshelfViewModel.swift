@@ -88,7 +88,7 @@ final class BookshelfViewModel: ObservableObject {
                 guard isRegularFile(src) else { continue }
                 guard let format = BookFormat.detect(for: src) else { continue }
 
-                let dest = uniqueDestination(preferredName: normalizedName(name, format: format))
+                let dest = uniqueDestination(preferredName: BookshelfViewModel.normalizedName(name, format: format))
                 moveOrCopy(from: src, to: dest)
             }
         }
@@ -121,16 +121,26 @@ final class BookshelfViewModel: ObservableObject {
         books.removeAll { !existing.contains($0.fileName) }
 
         let known = Set(books.map { $0.fileName })
+        var queued: [(String, BookFormat)] = []
         for name in onDisk where known.contains(name) == false {
             let url = booksDir.appendingPathComponent(name)
             guard isRegularFile(url), let format = BookFormat.detect(for: url) else { continue }
-            books.append(makeBook(for: url, format: format, fileName: name))
+            // 先用文件名占位，元数据（书名/作者/总页数）后台再补，避免卡住界面
+            books.append(Book(title: url.deletingPathExtension().lastPathComponent,
+                              author: "未知",
+                              format: format,
+                              fileName: name,
+                              totalUnits: 0))
+            queued.append((name, format))
         }
         save()
+        for item in queued {
+            requestMetadata(fileName: item.0, format: item.1)
+        }
     }
 
     /// 把没有扩展名 / 扩展名不对的文件补成正确的扩展名
-    private func normalizedName(_ name: String, format: BookFormat) -> String {
+    nonisolated static func normalizedName(_ name: String, format: BookFormat) -> String {
         let base = (name as NSString).deletingPathExtension
         let ext = (name as NSString).pathExtension.lowercased()
         if ext == format.fileExtension { return name }
@@ -138,67 +148,124 @@ final class BookshelfViewModel: ObservableObject {
         return "\(cleanBase).\(format.fileExtension)"
     }
 
-    /// 生成不冲突的目标路径
+    /// 生成不冲突的目标路径（实例侧包一层）
     private func uniqueDestination(preferredName: String) -> URL {
+        BookshelfViewModel.uniqueName(in: booksDir, preferredName: preferredName)
+    }
+
+    nonisolated static func uniqueName(in dir: URL, preferredName: String) -> String {
         let base = (preferredName as NSString).deletingPathExtension
         let ext = (preferredName as NSString).pathExtension
         var name = preferredName
         var index = 1
-        while fm.fileExists(atPath: booksDir.appendingPathComponent(name).path) {
+        let fm = FileManager.default
+        while fm.fileExists(atPath: dir.appendingPathComponent(name).path) {
             name = ext.isEmpty ? "\(base)_\(index)" : "\(base)_\(index).\(ext)"
             index += 1
         }
-        return booksDir.appendingPathComponent(name)
+        return name
     }
 
     // MARK: - 导入
 
-    func importBook(from url: URL) {
-        let didAccess = url.startAccessingSecurityScopedResource()
-        defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+    // MARK: - 导入（后台复制 + 先上架再补元数据，避免大文件卡界面）
 
-        guard let format = BookFormat.detect(for: url) else {
-            let ext = url.pathExtension.isEmpty ? "无扩展名" : url.pathExtension
-            alertMessage = "这个文件读不出来（\(ext)），不是 TXT / EPUB / PDF / CBZ"
-            return
-        }
-        ensureDirs()
-
-        let dest = uniqueDestination(preferredName: normalizedName(url.lastPathComponent, format: format))
-
-        var ok = false
-        if (try? fm.copyItem(at: url, to: dest)) != nil { ok = true }
-
-        if ok == false, let data = try? Data(contentsOf: url) {
-            ok = (try? data.write(to: dest, options: .atomic)) != nil
-        }
-
-        if ok == false {
-            // 最后用文件协调器读一次（iCloud 未下载完成的文件常见）
-            var coordError: NSError?
-            NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { readURL in
-                if let data = try? Data(contentsOf: readURL) {
-                    ok = (try? data.write(to: dest, options: .atomic)) != nil
-                }
-            }
-            if ok == false {
-                let reason = coordError?.localizedDescription ?? "文件无法读取"
-                alertMessage = "导入失败：\(reason)"
-                return
-            }
-        }
-
-        // 从 Inbox 来的（微信分享「拷贝到」）拿走后把原件删掉，避免重复登记
-        if url.path.contains("/Inbox/") {
-            try? fm.removeItem(at: url)
-        }
-
-        // 复制成功后统一走扫描登记，避免重复登记
-        scan()
-        _ = format
+    struct BookMeta: @unchecked Sendable {
+        var title: String = ""
+        var author: String = ""
+        var total: Int = 0
     }
 
-    private func makeBook(for url: URL, format: BookFormat, fileName: String) -> Book {
+    struct ImportOutcome: @unchecked Sendable {
+        var fileName: String?
+        var format: BookFormat?
+        var error: String?
+    }
+
+    /// 返回 nil 表示成功；非 nil 是给用户看的失败原因
+    func importBook(from url: URL) async -> String? {
+        ensureDirs()
+        let dir = booksDir
+
+        let outcome = await Task.detached(priority: .userInitiated) { () -> ImportOutcome in
+            BookshelfViewModel.copyIntoLibrary(source: url, booksDir: dir)
+        }.value
+
+        if let error = outcome.error { return error }
+        guard let fileName = outcome.fileName, let format = outcome.format else {
+            return "导入失败：文件没能存进来"
+        }
+
+        let title = (fileName as NSString).deletingPathExtension
+        if books.contains(where: { $0.fileName == fileName }) == false {
+            books.append(Book(title: title, author: "未知", format: format, fileName: fileName, totalUnits: 0))
+            save()
+        }
+        requestMetadata(fileName: fileName, format: format)
+        return nil
+    }
+
+    private nonisolated static func copyIntoLibrary(source: URL, booksDir: URL) -> ImportOutcome {
+        let didAccess = source.startAccessingSecurityScopedResource()
+        defer { if didAccess { source.stopAccessingSecurityScopedResource() } }
+
+        guard let format = BookFormat.detect(for: source) else {
+            let ext = source.pathExtension.isEmpty ? "无扩展名" : source.pathExtension
+            return ImportOutcome(error: "这个文件读不出来（\(ext)），不是 TXT / EPUB / PDF / CBZ")
+        }
+
+        let fm = FileManager.default
+        let name = uniqueName(in: booksDir, preferredName: normalizedName(source.lastPathComponent, format: format))
+        let dest = booksDir.appendingPathComponent(name)
+
+        if (try? fm.copyItem(at: source, to: dest)) == nil {
+            var copied = false
+            if let data = try? Data(contentsOf: source) {
+                copied = (try? data.write(to: dest, options: .atomic)) != nil
+            }
+            if copied == false {
+                // iCloud 未下载完成的文件常见，最后用文件协调器读一次
+                var coordError: NSError?
+                NSFileCoordinator().coordinate(readingItemAt: source, options: [], error: &coordError) { readURL in
+                    if let data = try? Data(contentsOf: readURL) {
+                        copied = (try? data.write(to: dest, options: .atomic)) != nil
+                    }
+                }
+                if copied == false {
+                    return ImportOutcome(error: "导入失败：\(coordError?.localizedDescription ?? "文件无法读取")")
+                }
+            }
+        }
+
+        // 微信「拷贝到」进 Inbox 的原件删掉，避免重复登记
+        if source.path.contains("/Inbox/") { try? fm.removeItem(at: source) }
+        return ImportOutcome(fileName: name, format: format)
+    }
+
+    /// 已在后台跑元数据的文件，避免重复请求
+    private var metadataPending: Set<String> = []
+
+    private func requestMetadata(fileName: String, format: BookFormat) {
+        guard metadataPending.contains(fileName) == false else { return }
+        metadataPending.insert(fileName)
+
+        let url = booksDir.appendingPathComponent(fileName)
+        Task.detached(priority: .utility) { [weak self] in
+            let meta = BookshelfViewModel.metadata(for: url, format: format)
+            await MainActor.run {
+                guard let self else { return }
+                self.metadataPending.remove(fileName)
+                guard let index = self.books.firstIndex(where: { $0.fileName == fileName }) else { return }
+                if meta.title.isEmpty == false { self.books[index].title = meta.title }
+                if meta.author.isEmpty == false { self.books[index].author = meta.author }
+                if meta.total > 0 { self.books[index].totalUnits = meta.total }
+                self.save()
+            }
+        }
+    }
+
+    nonisolated static func metadata(for url: URL, format: BookFormat) -> BookMeta {
+        var meta = BookMeta()
         var title = url.deletingPathExtension().lastPathComponent
         var author = "未知"
         var total = 0
@@ -219,12 +286,8 @@ final class BookshelfViewModel: ObservableObject {
             if let doc = PDFDocument(url: url) {
                 total = doc.pageCount
                 if let attrs = doc.documentAttributes {
-                    if let t = attrs[PDFDocumentAttribute.titleAttribute] as? String, t.isEmpty == false {
-                        title = t
-                    }
-                    if let a = attrs[PDFDocumentAttribute.authorAttribute] as? String, a.isEmpty == false {
-                        author = a
-                    }
+                    if let t = attrs[PDFDocumentAttribute.titleAttribute] as? String, t.isEmpty == false { title = t }
+                    if let a = attrs[PDFDocumentAttribute.authorAttribute] as? String, a.isEmpty == false { author = a }
                 }
             }
         case .epub:
@@ -233,7 +296,10 @@ final class BookshelfViewModel: ObservableObject {
             total = ComicLoader.listPages(url: url).count
         }
 
-        return Book(title: title, author: author, format: format, fileName: fileName, totalUnits: total)
+        meta.title = title
+        meta.author = author
+        meta.total = total
+        return meta
     }
 
     // MARK: - 删除 / 进度

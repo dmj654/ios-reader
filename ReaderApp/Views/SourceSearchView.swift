@@ -39,6 +39,8 @@ struct SourceSearchView: View {
     @State private var showManager = false
     @State private var selected: SourceItem?
     @State private var filter: SourceFilter = .all
+    @AppStorage("sourceSearchKeyword") private var storedKeyword = ""
+    @AppStorage("sourceSearchFilter") private var storedFilter = SourceFilter.all.rawValue
 
     /// 当前分类下真正能用的源
     private var activeSources: [BookSource] {
@@ -81,11 +83,22 @@ struct SourceSearchView: View {
                     prompt: filter == .comic ? "漫画名 / 作者，回车搜索" : "书名 / 作者，回车搜索"
                 )
                 .onSubmit(of: .search) {
+                    storedKeyword = vm.keyword
                     Task { await vm.search(sources: activeSources) }
                 }
-                .onChange(of: filter) { _, _ in
+                .onAppear {
+                    if vm.keyword.isEmpty, storedKeyword.isEmpty == false {
+                        vm.keyword = storedKeyword
+                    }
+                    if let restored = SourceFilter(rawValue: storedFilter), filter != restored {
+                        filter = restored
+                    }
+                }
+                .onChange(of: filter) { _, newValue in
+                    storedFilter = newValue.rawValue
                     vm.results = []
                     vm.errorMessage = nil
+                    vm.failures = []
                 }
                 .sheet(isPresented: $showManager) {
                     SourceManagerView(store: store)

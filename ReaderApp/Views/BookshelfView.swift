@@ -25,6 +25,21 @@ enum ShelfFilter: String, CaseIterable, Identifiable {
     }
 }
 
+enum ShelfSort: String, CaseIterable, Identifiable {
+    case recentRead, recentAdded, title, progress
+
+    var id: String { rawValue }
+
+    var name: String {
+        switch self {
+        case .recentRead: return "最近阅读"
+        case .recentAdded: return "最近添加"
+        case .title: return "书名"
+        case .progress: return "阅读进度"
+        }
+    }
+}
+
 struct BookshelfView: View {
     @EnvironmentObject var shelf: BookshelfViewModel
     @Environment(\.scenePhase) private var scenePhase
@@ -41,6 +56,14 @@ struct BookshelfView: View {
     @State private var searchActive = false
     @State private var filter: ShelfFilter = .all
     @State private var coverVersion = 0
+    @AppStorage("shelfSort") private var sortRaw = ShelfSort.recentRead.rawValue
+    @State private var importing = false
+    @State private var importDone = 0
+    @State private var importTotal = 0
+    @State private var renameBook: Book?
+    @State private var renameText = ""
+
+    private var sort: ShelfSort { ShelfSort(rawValue: sortRaw) ?? .recentRead }
 
     private let columns = [GridItem(.adaptive(minimum: 96, maximum: 132), spacing: 14, alignment: .top)]
 
@@ -55,15 +78,33 @@ struct BookshelfView: View {
                 if let toast {
                     toastView(toast)
                 }
+                if importing {
+                    importOverlay
+                }
             }
             .navigationTitle("书架")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItemGroup(placement: .topBarLeading) {
                     Button {
                         searchActive = true
                     } label: {
                         Image(systemName: "magnifyingglass")
+                    }
+                    Menu {
+                        ForEach(ShelfSort.allCases) { item in
+                            Button {
+                                sortRaw = item.rawValue
+                            } label: {
+                                if sort == item {
+                                    Label(item.name, systemImage: "checkmark")
+                                } else {
+                                    Text(item.name)
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
                     }
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
@@ -89,12 +130,25 @@ struct BookshelfView: View {
                 DocumentPicker(contentTypes: pickTypes, allowsMultiple: true) { urls in
                     showPicker = false
                     guard urls.isEmpty == false else { return }
-                    for url in urls { shelf.importBook(from: url) }
-                    if let msg = shelf.alertMessage {
-                        shelf.alertMessage = nil
-                        show("导入失败：\(msg)")
-                    } else {
-                        show("已导入 \(urls.count) 个文件")
+                    Task {
+                        importing = true
+                        importTotal = urls.count
+                        importDone = 0
+                        var failures: [String] = []
+                        for url in urls {
+                            if let error = await shelf.importBook(from: url) {
+                                failures.append(error)
+                            }
+                            importDone += 1
+                        }
+                        importing = false
+                        if failures.isEmpty {
+                            show("已导入 \(urls.count) 个文件")
+                        } else if failures.count == urls.count {
+                            show("导入失败：\(failures[0])")
+                        } else {
+                            show("导入 \(urls.count - failures.count) 个，失败 \(failures.count) 个：\(failures[0])")
+                        }
                     }
                 }
             }
@@ -105,6 +159,24 @@ struct BookshelfView: View {
                 Button("知道了", role: .cancel) {}
             } message: {
                 Text(shelf.alertMessage ?? "")
+            }
+            .alert("重命名", isPresented: Binding(
+                get: { renameBook != nil },
+                set: { if $0 == false { renameBook = nil } }
+            )) {
+                TextField("书名", text: $renameText)
+                Button("取消", role: .cancel) { renameBook = nil }
+                Button("保存") {
+                    if let book = renameBook {
+                        let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if name.isEmpty == false {
+                            shelf.updateTitle(bookID: book.id, title: name, author: book.author, total: 0)
+                        }
+                    }
+                    renameBook = nil
+                }
+            } message: {
+                Text("只改显示的书名，不影响文件")
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView(settings: settings)
@@ -175,6 +247,12 @@ struct BookshelfView: View {
                                 } label: {
                                     Label("重新生成封面", systemImage: "arrow.triangle.2.circlepath")
                                 }
+                                Button {
+                                    renameText = book.title
+                                    renameBook = book
+                                } label: {
+                                    Label("重命名", systemImage: "character.cursor.ibeam")
+                                }
                                 Button(role: .destructive) {
                                     CoverStore.clear(bookID: book.id)
                                     shelf.delete(book)
@@ -239,8 +317,20 @@ struct BookshelfView: View {
             list = list.filter { $0.title.localizedCaseInsensitiveContains(trimmed) }
         }
 
-        return list.sorted { lhs, rhs in
-            (lhs.lastReadAt ?? lhs.addedAt) > (rhs.lastReadAt ?? rhs.addedAt)
+        switch sort {
+        case .recentRead:
+            return list.sorted { lhs, rhs in
+                (lhs.lastReadAt ?? lhs.addedAt) > (rhs.lastReadAt ?? rhs.addedAt)
+            }
+        case .recentAdded:
+            return list.sorted { $0.addedAt > $1.addedAt }
+        case .title:
+            return list.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        case .progress:
+            return list.sorted { lhs, rhs in
+                if lhs.isRead != rhs.isRead { return rhs.isRead }
+                return lhs.progress > rhs.progress
+            }
         }
     }
 
@@ -295,6 +385,21 @@ struct BookshelfView: View {
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
                 .padding(.horizontal, 30)
                 .padding(.bottom, 40)
+        }
+        .transition(.opacity)
+    }
+
+    private var importOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.16).ignoresSafeArea()
+            VStack(spacing: 10) {
+                ProgressView()
+                Text(importTotal > 1 ? "正在导入 \(min(importDone + 1, importTotal)) / \(importTotal)" : "正在导入…")
+                    .font(.footnote)
+            }
+            .padding(.horizontal, 22)
+            .padding(.vertical, 18)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
         }
         .transition(.opacity)
     }
