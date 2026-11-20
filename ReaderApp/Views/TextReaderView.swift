@@ -68,6 +68,8 @@ struct TextReaderView: View {
     @State private var searchHits: [SearchHit] = []
     @State private var searching = false
 
+    @ObservedObject private var speech = SpeechReader.shared
+
     private let hPad: CGFloat = 22
     private let vPad: CGFloat = 16
 
@@ -132,6 +134,7 @@ struct TextReaderView: View {
         .onChange(of: settings.fontSize) { _, _ in repaginate(keepingOffset: true) }
         .onChange(of: settings.lineSpacing) { _, _ in repaginate(keepingOffset: true) }
         .onDisappear {
+            speech.stop()
             saveProgress()
             stats.endSession()
         }
@@ -290,6 +293,10 @@ struct TextReaderView: View {
                     ChromeIconButton(systemName: "magnifyingglass", tint: ink) {
                         panelTab = .search
                         showPanels = true
+                    }
+
+                    ChromeIconButton(systemName: speech.speaking ? "speaker.wave.2.fill" : "speaker.wave.2", tint: ink) {
+                        toggleSpeech()
                     }
 
                     ChromeIconButton(systemName: "textformat", tint: ink) {
@@ -585,6 +592,38 @@ struct TextReaderView: View {
         if shelf.isBookmarked(bookID: book.id, offset: offset) {
             withAnimation { showMenu = true }
         }
+    }
+
+    /// 从当前位置读到本章结束（最多 6000 字），翻章后再点一次
+    private func toggleSpeech() {
+        if speech.speaking {
+            speech.stop()
+            return
+        }
+        let slice = speechSlice()
+        guard slice.isEmpty == false else { return }
+        speech.speak(slice, key: "\(book.id.uuidString)-\(currentOffset)")
+    }
+
+    private func speechSlice() -> String {
+        let ns = flatText as NSString
+        guard ns.length > 0 else { return "" }
+        let start = max(0, min(currentOffset, ns.length - 1))
+
+        var end = ns.length
+        if chapterStarts.isEmpty == false {
+            for index in chapterStarts.indices {
+                let begin = chapterStarts[index]
+                let finish = index + 1 < chapterStarts.count ? chapterStarts[index + 1] : ns.length
+                if start >= begin, start < finish {
+                    end = finish
+                    break
+                }
+            }
+        }
+        end = min(end, start + 6000)
+        end = min(max(end, start + 1), ns.length)
+        return ns.substring(with: NSRange(location: start, length: end - start))
     }
 
     private func runSearch() {

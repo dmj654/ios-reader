@@ -45,6 +45,7 @@ struct SourceSearchView: View {
     @State private var filter: SourceFilter = .all
 
     @AppStorage("sourceSearchKeyword") private var storedKeyword = ""
+    @State private var history: [String] = UserDefaults.standard.stringArray(forKey: "sourceSearchHistory") ?? []
     @AppStorage("sourceSearchFilter") private var storedFilter = SourceFilter.all.rawValue
     /// 一次搜索最多动用多少个源（一千条源全发出去等于全超时）
     @AppStorage("sourceSearchLimit") private var searchLimit = 30
@@ -106,8 +107,7 @@ struct SourceSearchView: View {
                     prompt: filter == .comic ? "漫画名 / 作者，回车搜索" : "书名 / 作者，回车搜索"
                 )
                 .onSubmit(of: .search) {
-                    storedKeyword = vm.keyword
-                    Task { await vm.search(sources: activeSources, limit: searchLimit, store: store) }
+                    Task { await runSearch() }
                 }
                 .onAppear {
                     if vm.keyword.isEmpty, storedKeyword.isEmpty == false {
@@ -137,7 +137,7 @@ struct SourceSearchView: View {
                 }
                 .navigationDestination(item: $selected) { item in
                     if let source = store.sources.first(where: { $0.id == item.sourceID }) {
-                        SourceBookView(item: item, source: source, shelf: shelf) { book in
+                        SourceBookView(item: item, source: source, shelf: shelf, store: store) { book in
                             dismiss()
                             onOpenBook(book)
                         }
@@ -272,6 +272,43 @@ struct SourceSearchView: View {
                 .padding(.top, 2)
             }
 
+            if history.isEmpty == false, vm.keyword.isEmpty {
+                VStack(spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text("最近搜过")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                        Button("清空") {
+                            history = []
+                            UserDefaults.standard.removeObject(forKey: "sourceSearchHistory")
+                        }
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                    }
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(history, id: \.self) { word in
+                                Button {
+                                    vm.keyword = word
+                                    Task { await runSearch() }
+                                } label: {
+                                    Text(word)
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.primary)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(Color.secondary.opacity(0.14), in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                    }
+                }
+                .padding(.top, 10)
+            }
+
             Button {
                 showCheck = true
             } label: {
@@ -293,6 +330,24 @@ struct SourceSearchView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func runSearch() async {
+        let word = vm.keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard word.isEmpty == false else { return }
+        storedKeyword = word
+        remember(word)
+        await vm.search(sources: activeSources, limit: searchLimit, store: store)
+    }
+
+    /// 最近搜过的关键词，最多 8 个，搜过的排最前
+    private func remember(_ word: String) {
+        var list = history
+        list.removeAll { $0 == word }
+        list.insert(word, at: 0)
+        if list.count > 8 { list = Array(list.prefix(8)) }
+        history = list
+        UserDefaults.standard.set(list, forKey: "sourceSearchHistory")
     }
 
     private var resultList: some View {
@@ -523,9 +578,10 @@ struct SourceSkippedView: View {
 // MARK: - 书详情 / 下载
 
 struct SourceBookView: View {
-    let item: SourceItem
-    let source: BookSource
+    @State private var item: SourceItem
+    @State private var source: BookSource
     @ObservedObject var shelf: BookshelfViewModel
+    @ObservedObject var store: SourceStore
     var onOpenBook: (Book) -> Void
 
     @StateObject private var vm = SourceViewModel()
@@ -533,6 +589,24 @@ struct SourceBookView: View {
     @State private var alertText: String?
     @State private var reading = false
     @State private var startIndex = 0
+
+    @State private var showSwitch = false
+    @State private var switching = false
+    @State private var alternates: [Alternate] = []
+
+    struct Alternate: Identifiable {
+        let id: UUID
+        let item: SourceItem
+        let source: BookSource
+    }
+
+    init(item: SourceItem, source: BookSource, shelf: BookshelfViewModel, store: SourceStore, onOpenBook: @escaping (Book) -> Void) {
+        _item = State(initialValue: item)
+        _source = State(initialValue: source)
+        _shelf = ObservedObject(wrappedValue: shelf)
+        _store = ObservedObject(wrappedValue: store)
+        self.onOpenBook = onOpenBook
+    }
 
     private var limitOptions: [(title: String, value: Int)] {
         switch item.type {
@@ -647,6 +721,29 @@ struct SourceBookView: View {
                 Text("下载到本地（不下载也能直接在线看）")
             }
 
+            Section {
+                Button {
+                    showSwitch = true
+                    findAlternates()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                        Text(switching ? "正在别的源里找这本…" : "换源 · 在别的源找这本")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if switching {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                .disabled(switching)
+            } footer: {
+                Text("这本在别的源更全或广告更少时切过去，已读的章数照搬。")
+            }
+
             if vm.chapters.isEmpty == false {
                 Section {
                     ForEach(vm.chapters.prefix(300).indices, id: \.self) { index in
@@ -681,6 +778,9 @@ struct SourceBookView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             if vm.chapters.isEmpty { await vm.loadChapters(source: source, item: item) }
+        }
+        .sheet(isPresented: $showSwitch) {
+            switchSheet
         }
         .fullScreenCover(isPresented: $reading) {
             SourceReaderView(
@@ -734,5 +834,129 @@ struct SourceBookView: View {
         } else {
             alertText = vm.finishedMessage ?? "下载失败"
         }
+    }
+
+    // MARK: - 换源
+
+    private var switchSheet: some View {
+        NavigationStack {
+            List {
+                if alternates.isEmpty {
+                    Section {
+                        if switching {
+                            HStack(spacing: 10) {
+                                ProgressView()
+                                Text("搜到 \(vm.searchedCount) / \(vm.plannedCount) 个源…")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                        } else {
+                            Text("别的源里没找到同名的这本。可以回上一页换个关键词再搜。")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    Section {
+                        ForEach(alternates) { alt in
+                            Button {
+                                apply(alt)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(alt.item.name)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                    Text("\(alt.source.name) · \(alt.item.author.isEmpty ? "未知作者" : alt.item.author)")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                .padding(.vertical, 2)
+                            }
+                        }
+                    } footer: {
+                        Text("点一条就切过去，目录会重新取，读到第几章会照搬。")
+                    }
+                }
+            }
+            .navigationTitle("换源")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("关闭") { showSwitch = false }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func findAlternates() {
+        guard switching == false else { return }
+        switching = true
+        alternates = []
+
+        let title = item.name
+        let target = Self.normalized(title)
+        let pool = store.sources.filter {
+            $0.enabled && $0.type == item.type && $0.id != source.id && $0.searchUnsupportedReason == nil
+        }
+
+        Task {
+            let backup = vm.keyword
+            vm.keyword = title
+            await vm.search(sources: pool, limit: 12, store: nil)
+            vm.keyword = backup
+
+            var seen = Set<UUID>()
+            var found: [Alternate] = []
+            for result in vm.results {
+                guard seen.contains(result.sourceID) == false else { continue }
+                guard let alt = store.sources.first(where: { $0.id == result.sourceID }) else { continue }
+                guard Self.similar(result.name, target) else { continue }
+                seen.insert(result.sourceID)
+                found.append(Alternate(id: result.sourceID, item: result, source: alt))
+            }
+            alternates = found
+            switching = false
+        }
+    }
+
+    private func apply(_ alt: Alternate) {
+        let carry = savedIndex
+        showSwitch = false
+        item = alt.item
+        source = alt.source
+        vm.chapters = []
+        vm.chapterError = nil
+
+        Task {
+            await vm.loadChapters(source: alt.source, item: alt.item)
+            if carry > 0, vm.chapters.isEmpty == false {
+                let target = min(carry, vm.chapters.count - 1)
+                UserDefaults.standard.set(target, forKey: "readpos-\(alt.item.link)")
+            }
+        }
+        alertText = "已切到「\(alt.source.name)」"
+    }
+
+    /// 只留中文、字母、数字，书名里的《》、空格、标点不算差异
+    private static func normalized(_ raw: String) -> String {
+        var out = ""
+        for character in raw.lowercased() where character.isLetter || character.isNumber {
+            out.append(character)
+        }
+        return out
+    }
+
+    private static func similar(_ lhs: String, _ target: String) -> Bool {
+        let a = normalized(lhs)
+        guard a.isEmpty == false, target.isEmpty == false else { return false }
+        if a == target { return true }
+        if a.contains(target) || target.contains(a) {
+            return abs(a.count - target.count) <= 2
+        }
+        return false
     }
 }

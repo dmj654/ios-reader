@@ -25,6 +25,8 @@ struct SourceReaderView: View {
     @State private var fontSize: Double = 18
     @State private var loadedIndex = -1
 
+    @ObservedObject private var speech = SpeechReader.shared
+
     init(source: BookSource, item: SourceItem, chapters: [SourceChapter], startIndex: Int) {
         self.source = source
         self.item = item
@@ -123,6 +125,12 @@ struct SourceReaderView: View {
         .onAppear {
             if loadedIndex != index { load(index) }
         }
+        .onChange(of: index) { _, _ in
+            if speech.speaking { speech.stop() }
+        }
+        .onDisappear {
+            speech.stop()
+        }
     }
 
     // MARK: - 顶栏 / 底栏
@@ -188,6 +196,31 @@ struct SourceReaderView: View {
             .disabled(index + 1 >= chapters.count)
 
             Menu {
+                Button {
+                    if speech.speaking {
+                        speech.stop()
+                    } else {
+                        speech.speak(text, key: chapters.indices.contains(index) ? chapters[index].link : item.link)
+                    }
+                } label: {
+                    Label(speech.speaking ? "停止朗读" : "朗读本章", systemImage: speech.speaking ? "stop.fill" : "speaker.wave.2")
+                }
+
+                if speech.speaking {
+                    Button {
+                        if speech.paused { speech.resume() } else { speech.pause() }
+                    } label: {
+                        Label(speech.paused ? "继续朗读" : "暂停一下", systemImage: speech.paused ? "play.fill" : "pause.fill")
+                    }
+                }
+
+                Button("慢一点") { setSpeechRate(speech.rate - 0.05) }
+                Button("快一点") { setSpeechRate(speech.rate + 0.05) }
+            } label: {
+                Image(systemName: speech.speaking ? "speaker.wave.2.fill" : "speaker.wave.2")
+            }
+
+            Menu {
                 Button("小一点") { setFont(fontSize - 1) }
                 Button("大一点") { setFont(fontSize + 1) }
                 Button("恢复默认") { setFont(18) }
@@ -244,6 +277,14 @@ struct SourceReaderView: View {
     private func setFont(_ value: Double) {
         fontSize = min(26, max(13, value))
         UserDefaults.standard.set(fontSize, forKey: "sourceReaderFontSize")
+    }
+
+    /// 改语速后从本章开头重读，不然要等下一段才生效
+    private func setSpeechRate(_ value: Float) {
+        speech.rate = min(0.65, max(0.35, value))
+        if speech.speaking {
+            speech.speak(text, key: chapters.indices.contains(index) ? chapters[index].link : item.link)
+        }
     }
 
     private func load(_ target: Int, force: Bool = false) {
