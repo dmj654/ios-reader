@@ -143,20 +143,20 @@ enum LegadoBridge {
                     text: type == .novel ? contentRule : "",
                     images: type == .comic ? imageRule : ""
                 ),
-                explore: SearchRule(
-                    url: "",
-                    method: "GET",
-                    headers: headers,
-                    body: nil,
-                    list: string(exploreMap, "bookList"),
-                    name: string(exploreMap, "name"),
-                    author: string(exploreMap, "author"),
-                    cover: string(exploreMap, "coverUrl"),
-                    link: string(exploreMap, "bookUrl")
-                ),
-                exploreLinks: parseExploreLinks(raw["exploreUrl"]),
                 headers: headers
             )
+            converted.explore = SearchRule(
+                url: "",
+                method: "GET",
+                headers: headers,
+                body: nil,
+                list: string(exploreMap, "bookList"),
+                name: string(exploreMap, "name"),
+                author: string(exploreMap, "author"),
+                cover: string(exploreMap, "coverUrl"),
+                link: string(exploreMap, "bookUrl")
+            )
+            converted.exploreLinks = parseExploreLinks(raw["exploreUrl"])
             converted.group = firstGroup(string(raw, "bookSourceGroup"))
 
             // 这条规则能不能跑，先探一下，省得用户装了才发现是 JS
