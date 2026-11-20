@@ -93,6 +93,17 @@ enum PickTypes {
         return types
     }
 
+    /// 字体 ttf / otf / ttc
+    static var fonts: [UTType] {
+        var types: [UTType] = [.font, .item]
+        for ext in ["ttf", "otf", "ttc"] {
+            if let type = UTType(filenameExtension: ext) {
+                types.append(type)
+            }
+        }
+        return types
+    }
+
     /// 书源 JSON
     static var json: [UTType] {
         var types: [UTType] = [.json, .plainText, .item]

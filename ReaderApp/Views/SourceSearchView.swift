@@ -594,6 +594,9 @@ struct SourceBookView: View {
     @State private var switching = false
     @State private var alternates: [Alternate] = []
 
+    @StateObject private var offline = OfflineCacheStore.shared
+    @State private var cachedCount = 0
+
     struct Alternate: Identifiable {
         let id: UUID
         let item: SourceItem
@@ -722,6 +725,51 @@ struct SourceBookView: View {
             }
 
             Section {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.down.to.line")
+                    Text(cachedCount > 0 ? "已缓存 \(cachedCount) / \(vm.chapters.count) 章" : "还没缓存")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if offline.isRunning(link: item.link) {
+                        ProgressView()
+                    }
+                }
+
+                if offline.isRunning(link: item.link) {
+                    ProgressView(value: offline.progress)
+                    Text(offline.statusText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button("停止缓存") { offline.cancel() }
+                        .foregroundStyle(.red)
+                } else {
+                    Button {
+                        Task {
+                            await offline.cache(source: source, item: item, chapters: vm.chapters, limit: 0)
+                            refreshCached()
+                            if let message = offline.finishedMessage { alertText = message }
+                        }
+                    } label: {
+                        Text(cachedCount > 0 ? "接着缓存剩下的" : "整本缓存到本机")
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    .disabled(vm.chapters.isEmpty)
+
+                    if cachedCount > 0 {
+                        Button(role: .destructive) {
+                            ChapterCache.clear(link: item.link)
+                            refreshCached()
+                        } label: {
+                            Text("清空这本的缓存")
+                        }
+                    }
+                }
+            } header: {
+                Text("离线缓存")
+            } footer: {
+                Text("缓存过的章节断网也能读；在线阅读时读一章也会自动存一章。")
+            }
+
+            Section {
                 Button {
                     showSwitch = true
                     findAlternates()
@@ -777,7 +825,9 @@ struct SourceBookView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            refreshCached()
             if vm.chapters.isEmpty { await vm.loadChapters(source: source, item: item) }
+            refreshCached()
         }
         .sheet(isPresented: $showSwitch) {
             switchSheet
@@ -837,6 +887,10 @@ struct SourceBookView: View {
     }
 
     // MARK: - 换源
+
+    private func refreshCached() {
+        cachedCount = ChapterCache.cachedCount(link: item.link)
+    }
 
     private var switchSheet: some View {
         NavigationStack {
@@ -930,6 +984,7 @@ struct SourceBookView: View {
         source = alt.source
         vm.chapters = []
         vm.chapterError = nil
+        refreshCached()
 
         Task {
             await vm.loadChapters(source: alt.source, item: alt.item)

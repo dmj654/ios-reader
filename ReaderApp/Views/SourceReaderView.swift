@@ -45,7 +45,8 @@ struct SourceReaderView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(chapters.indices.contains(index) ? chapters[index].name : "…")
-                        .font(.system(size: fontSize + 4, weight: .semibold))
+                        .font(FontLibrary.font(name: readerFontName, size: fontSize + 4))
+                        .fontWeight(.semibold)
                         .padding(.bottom, 2)
 
                     if loading && text.isEmpty {
@@ -68,7 +69,7 @@ struct SourceReaderView: View {
                         .padding(.top, 30)
                     } else {
                         Text(text)
-                            .font(.system(size: fontSize))
+                            .font(FontLibrary.font(name: readerFontName, size: fontSize))
                             .lineSpacing(fontSize * 0.55)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -279,6 +280,11 @@ struct SourceReaderView: View {
         UserDefaults.standard.set(fontSize, forKey: "sourceReaderFontSize")
     }
 
+    /// 正文用哪款字体（在「设置」里选的），没选就是系统字体
+    private var readerFontName: String? {
+        UserDefaults.standard.string(forKey: "reader.fontName")
+    }
+
     /// 改语速后从本章开头重读，不然要等下一段才生效
     private func setSpeechRate(_ value: Float) {
         speech.rate = min(0.65, max(0.35, value))
@@ -307,10 +313,22 @@ struct SourceReaderView: View {
         text = cache[target] ?? ""
         errorText = nil
 
+        // 有离线缓存就直接用，断网也能看
+        if force == false, let disk = ChapterCache.text(link: item.link, index: target) {
+            cache[target] = disk
+            text = disk
+            loading = false
+            loadedIndex = target
+            saveProgress()
+            prefetchAround(target)
+            return
+        }
+
         Task {
             do {
                 let body = try await SourceClient.chapterText(source: source, chapter: chapter)
                 cache[target] = body
+                ChapterCache.store(link: item.link, index: target, text: body)
                 if index == target {
                     text = body
                     loading = false
@@ -344,6 +362,7 @@ struct SourceReaderView: View {
             Task {
                 if let body = try? await SourceClient.chapterText(source: source, chapter: chapter) {
                     cache[target] = body
+                    ChapterCache.store(link: item.link, index: target, text: body)
                 }
                 prefetching.remove(target)
             }

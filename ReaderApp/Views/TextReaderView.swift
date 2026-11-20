@@ -133,6 +133,7 @@ struct TextReaderView: View {
         .task { await load() }
         .onChange(of: settings.fontSize) { _, _ in repaginate(keepingOffset: true) }
         .onChange(of: settings.lineSpacing) { _, _ in repaginate(keepingOffset: true) }
+        .onChange(of: settings.fontName) { _, _ in repaginate(keepingOffset: true) }
         .onDisappear {
             speech.stop()
             saveProgress()
@@ -177,7 +178,8 @@ struct TextReaderView: View {
         let attrs = TextPaginator.attributes(
             fontSize: settings.fontSize,
             lineSpacing: settings.lineSpacing,
-            color: UIColor(settings.theme.foreground)
+            color: UIColor(settings.theme.foreground),
+            fontName: settings.fontName
         )
         return NSAttributedString(string: slice, attributes: attrs)
     }
@@ -742,7 +744,8 @@ struct TextReaderView: View {
         let attrs = TextPaginator.attributes(
             fontSize: settings.fontSize,
             lineSpacing: settings.lineSpacing,
-            color: UIColor(settings.theme.foreground)
+            color: UIColor(settings.theme.foreground),
+            fontName: settings.fontName
         )
 
         let ns = flatText as NSString

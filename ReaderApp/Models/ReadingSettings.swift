@@ -211,6 +211,16 @@ final class ReadingSettings: ObservableObject {
     @Published var pageTurn: PageTurnStyle {
         didSet { defaults.set(pageTurn.rawValue, forKey: Keys.pageTurn) }
     }
+    /// 正文自定义字体（PostScript 名），nil = 系统默认
+    @Published var fontName: String? {
+        didSet {
+            if let fontName {
+                defaults.set(fontName, forKey: Keys.fontName)
+            } else {
+                defaults.removeObject(forKey: Keys.fontName)
+            }
+        }
+    }
 
     // 漫画
     @Published var comicFit: ComicFitMode {
@@ -266,6 +276,7 @@ final class ReadingSettings: ObservableObject {
         static let lineSpacing = "reader.lineSpacing"
         static let theme = "reader.theme"
         static let pageTurn = "reader.pageTurn"
+        static let fontName = "reader.fontName"
         static let comicFit = "reader.comicFit"
         static let comicDirection = "reader.comicDirection"
         static let comicMode = "reader.comicMode"
@@ -292,6 +303,7 @@ final class ReadingSettings: ObservableObject {
         self.lineSpacing = (d.object(forKey: Keys.lineSpacing) as? Double) ?? 8
         self.theme = ReaderTheme(rawValue: d.string(forKey: Keys.theme) ?? "") ?? .paper
         self.pageTurn = PageTurnStyle(rawValue: d.string(forKey: Keys.pageTurn) ?? "") ?? .slide
+        self.fontName = d.string(forKey: Keys.fontName)
 
         self.comicFit = ComicFitMode(rawValue: d.string(forKey: Keys.comicFit) ?? "")
             ?? ((oldFitWidth == true) ? .width : .screen)

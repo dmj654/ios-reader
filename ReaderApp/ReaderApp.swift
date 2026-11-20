@@ -11,6 +11,11 @@ import SwiftUI
 struct ReaderApp: App {
     @StateObject private var shelf = BookshelfViewModel()
 
+    init() {
+        // 自定义字体每次启动都要重新注册，否则读的是回退的系统字体
+        _ = FontStore.shared
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

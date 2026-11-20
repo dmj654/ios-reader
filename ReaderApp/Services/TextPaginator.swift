@@ -12,13 +12,13 @@ import CoreText
 enum TextPaginator {
 
     /// 构造正文排版属性
-    static func attributes(fontSize: CGFloat, lineSpacing: CGFloat, color: UIColor) -> [NSAttributedString.Key: Any] {
+    static func attributes(fontSize: CGFloat, lineSpacing: CGFloat, color: UIColor, fontName: String? = nil) -> [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = lineSpacing
         paragraph.paragraphSpacing = lineSpacing * 0.6
         paragraph.lineBreakMode = .byWordWrapping
         return [
-            .font: UIFont.systemFont(ofSize: fontSize),
+            .font: FontLibrary.uiFont(name: fontName, size: fontSize),
             .paragraphStyle: paragraph,
             .foregroundColor: color,
             .kern: 0.0

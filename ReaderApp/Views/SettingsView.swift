@@ -18,6 +18,8 @@ struct SettingsView: View {
     @AppStorage("stats.dailyGoalMinutes") private var goalMinutes: Int = 30
     @State private var showManager = false
     @State private var showStats = false
+    @ObservedObject private var fonts = FontStore.shared
+    @State private var fontMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -45,6 +47,55 @@ struct SettingsView: View {
                     }
                 } header: {
                     Text("排版")
+                }
+
+                Section {
+                    Picker("正文字体", selection: Binding(
+                        get: { settings.fontName ?? "" },
+                        set: { settings.fontName = $0.isEmpty ? nil : $0 }
+                    )) {
+                        Text("系统默认").tag("")
+                        ForEach(fonts.items) { item in
+                            Text(item.displayName).tag(item.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    Button {
+                        importFont()
+                    } label: {
+                        Label("导入字体（ttf / otf）", systemImage: "textformat")
+                    }
+
+                    ForEach(fonts.items) { item in
+                        HStack {
+                            Text(item.displayName)
+                                .font(.footnote)
+                                .lineLimit(1)
+                            Spacer(minLength: 8)
+                            if settings.fontName == item.id {
+                                Text("使用中")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tint)
+                            }
+                            Text(item.fileName)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
+                        .swipeActions {
+                            Button(role: .destructive) {
+                                if settings.fontName == item.id { settings.fontName = nil }
+                                fonts.remove(item)
+                            } label: {
+                                Label("删除", systemImage: "trash")
+                            }
+                        }
+                    }
+                } header: {
+                    Text("字体")
+                } footer: {
+                    Text("把 ttf / otf 放进「文件」App 后点导入；删掉字体，正文自动回到系统字体。排版会按新字体重新分页。")
                 }
 
                 Section {
@@ -185,6 +236,25 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showStats) {
                 StatsView(store: ReadingStatsStore.shared, books: books)
+            }
+            .alert("字体", isPresented: Binding(
+                get: { fontMessage != nil },
+                set: { if $0 == false { fontMessage = nil } }
+            )) {
+                Button("知道了", role: .cancel) {}
+            } message: {
+                Text(fontMessage ?? "")
+            }
+        }
+    }
+
+    private func importFont() {
+        DocumentPickerHost.present(contentTypes: PickTypes.fonts, allowsMultiple: false) { urls in
+            guard let url = urls.first else { return }
+            Task {
+                let message = fonts.add(url)
+                try? await Task.sleep(nanoseconds: 350_000_000)
+                fontMessage = message
             }
         }
     }
