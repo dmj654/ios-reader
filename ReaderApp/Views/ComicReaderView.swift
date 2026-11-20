@@ -33,6 +33,9 @@ struct ComicReaderView: View {
     @State private var zoomed = false
     @State private var hideItem: DispatchWorkItem?
     @State private var scrollTarget: Int?
+    /// 翻页缓冲：上一页盖在上层淡出，露出新页，避免硬切/闪黑
+    @State private var outgoingImage: UIImage?
+    @State private var outgoingOpacity: Double = 1
 
     var body: some View {
         ZStack {
@@ -113,6 +116,13 @@ struct ComicReaderView: View {
                 onEdgeExit: { exitReader() }
             )
             .ignoresSafeArea()
+
+            if let outgoingImage {
+                ComicStillPage(image: outgoingImage, fitMode: settings.comicFit)
+                    .opacity(outgoingOpacity)
+                    .allowsHitTesting(false)
+                    .ignoresSafeArea()
+            }
 
             if imageLoading {
                 ProgressView()
@@ -385,7 +395,7 @@ struct ComicReaderView: View {
         let trim = settings.comicAutoTrim
 
         if let hit = ComicLoader.cachedImage(at: path, in: url, trim: trim) {
-            image = hit
+            setPageImage(hit)
             imageLoading = false
         } else {
             imageLoading = true
@@ -393,11 +403,31 @@ struct ComicReaderView: View {
                 ComicLoader.image(at: path, in: url, trim: trim)
             }.value
             if pageIndex == index {
-                image = loaded
+                setPageImage(loaded)
                 imageLoading = false
             }
         }
         preload(around: index)
+    }
+
+    /// 换页：旧页留在上层淡出，新页立刻在下面就位，形成交叉溶解
+    @MainActor
+    private func setPageImage(_ newImage: UIImage?) {
+        guard let newImage else {
+            image = nil
+            return
+        }
+        guard let old = image, old !== newImage else {
+            image = newImage
+            return
+        }
+        outgoingImage = old
+        outgoingOpacity = 1
+        image = newImage
+        withAnimation(.easeOut(duration: 0.22)) { outgoingOpacity = 0 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
+            if outgoingOpacity < 0.02 { outgoingImage = nil }
+        }
     }
 
     private func preload(around index: Int) {
@@ -437,7 +467,12 @@ struct ComicReaderView: View {
     private func turn(by delta: Int) {
         guard settings.comicMode == .paged else { return }
         let target = pageIndex + delta
-        guard pagePaths.indices.contains(target) else { return }
+        guard pagePaths.indices.contains(target) else {
+            // 到首/末页给一下硬一点的触感，避免误以为卡了
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            return
+        }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         pageIndex = target
         zoomed = false
         saveProgress()
@@ -522,6 +557,37 @@ struct ComicReaderView: View {
     private func saveProgress() {
         guard pagePaths.isEmpty == false else { return }
         shelf.updateProgress(bookID: book.id, location: currentPage, totalUnits: pagePaths.count)
+    }
+}
+
+// MARK: - 翻页过渡用的静态页
+
+/// 和 ComicZoomView 采用同一套尺寸规则（整页/铺满宽/铺满高 + 居中），
+/// 保证淡出过程中新旧两页对得上，不会跳动。
+struct ComicStillPage: View {
+    let image: UIImage
+    let fitMode: ComicFitMode
+
+    var body: some View {
+        GeometryReader { geo in
+            let iw = max(image.size.width, 1)
+            let ih = max(image.size.height, 1)
+            let wScale = geo.size.width / iw
+            let hScale = geo.size.height / ih
+            let scale: CGFloat = {
+                switch fitMode {
+                case .screen: return min(wScale, hScale)
+                case .width: return wScale
+                case .height: return hScale
+                }
+            }()
+
+            Image(uiImage: image)
+                .resizable()
+                .frame(width: iw * scale, height: ih * scale)
+                .position(x: geo.size.width / 2, y: geo.size.height / 2)
+        }
+        .clipped()
     }
 }
 
