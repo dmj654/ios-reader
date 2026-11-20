@@ -63,8 +63,8 @@ targets:
       properties:
         CFBundleDisplayName: "本地阅读器"
         CFBundleName: "本地阅读器"
-        CFBundleShortVersionString: "1.22.0"
-        CFBundleVersion: "41"
+        CFBundleShortVersionString: "1.22.1"
+        CFBundleVersion: "42"
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
         UIRequiresFullScreen: false

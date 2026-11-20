@@ -57,34 +57,23 @@ struct SourceSearchView: View {
     /// 一次搜索最多动用多少个源（一千条源全发出去等于全超时）
     @AppStorage("sourceSearchLimit") private var searchLimit = 30
 
-    /// 当前分类下真正能用的源（排掉规则残缺和只能靠 JS 的，它们必然搜不到）
-    private var activeSources: [BookSource] {
-        let enabled = store.enabledSources
-        let base = filter.type == nil ? enabled : enabled.filter { $0.type == filter.type }
-        return base.filter { $0.searchUnsupportedReason == nil }
-    }
+    /// 当前分类下真正能用的源（缓存：只在书源列表 / 分类变化时重算，避免打字时反复过滤上千条）
+    @State private var usableSources: [BookSource] = []
+    @State private var skippedCount = 0
+
+    private var activeSources: [BookSource] { usableSources }
 
     /// 这次实际会搜多少个源
     private var effectiveCount: Int {
-        min(activeSources.count, max(1, searchLimit))
+        min(usableSources.count, max(1, searchLimit))
     }
 
-    /// 开着但用不了的源，按原因分成两类，只给数量，不再一条条刷屏
-    private var scopedEnabled: [BookSource] {
-        store.sources.filter { $0.enabled && (filter.type == nil || $0.type == filter.type) }
+    private func recomputeSourceLists() {
+        let scoped = store.sources.filter { $0.enabled && (filter.type == nil || $0.type == filter.type) }
+        let usable = scoped.filter { $0.searchUnsupportedReason == nil }
+        usableSources = usable
+        skippedCount = scoped.count - usable.count
     }
-
-    private var jsSources: [BookSource] {
-        scopedEnabled.filter { $0.searchUnsupportedReason != nil }
-    }
-
-    private var brokenSources: [BookSource] {
-        scopedEnabled.filter { source in
-            source.searchUnsupportedReason == nil && (source.baseUrl.isEmpty || source.search.list.isEmpty)
-        }
-    }
-
-    private var skippedCount: Int { jsSources.count + brokenSources.count }
 
     var body: some View {
         NavigationStack {
@@ -129,6 +118,7 @@ struct SourceSearchView: View {
                     if let restored = SourceFilter(rawValue: storedFilter), filter != restored {
                         filter = restored
                     }
+                    recomputeSourceLists()
                 }
                 .onChange(of: filter) { _, newValue in
                     storedFilter = newValue.rawValue
@@ -138,6 +128,10 @@ struct SourceSearchView: View {
                     vm.failureBuckets = []
                     vm.searchedCount = 0
                     vm.plannedCount = 0
+                    recomputeSourceLists()
+                }
+                .onChange(of: store.sources) { _, _ in
+                    recomputeSourceLists()
                 }
                 .sheet(isPresented: $showManager) {
                     SourceManagerView(store: store)
@@ -146,7 +140,7 @@ struct SourceSearchView: View {
                     SourceCheckView(store: store)
                 }
                 .sheet(isPresented: $showSkipped) {
-                    SourceSkippedView(jsSources: jsSources, brokenSources: brokenSources, store: store)
+                    SourceSkippedView(store: store)
                 }
                 .navigationDestination(item: $selected) { item in
                     if let source = store.sources.first(where: { $0.id == item.sourceID }) {
@@ -533,10 +527,18 @@ struct SourceSearchView: View {
 // MARK: - 用不了的源清单
 
 struct SourceSkippedView: View {
-    let jsSources: [BookSource]
-    let brokenSources: [BookSource]
     @ObservedObject var store: SourceStore
     @Environment(\.dismiss) private var dismiss
+
+    private var jsSources: [BookSource] {
+        store.sources.filter { $0.enabled && $0.searchUnsupportedReason != nil }
+    }
+
+    private var brokenSources: [BookSource] {
+        store.sources.filter {
+            $0.enabled && $0.searchUnsupportedReason == nil && ($0.baseUrl.isEmpty || $0.search.list.isEmpty)
+        }
+    }
 
     var body: some View {
         NavigationStack {
