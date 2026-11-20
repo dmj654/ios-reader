@@ -150,7 +150,9 @@ final class BookshelfViewModel: ObservableObject {
 
     /// 生成不冲突的目标路径（实例侧包一层）
     private func uniqueDestination(preferredName: String) -> URL {
-        BookshelfViewModel.uniqueName(in: booksDir, preferredName: preferredName)
+        booksDir.appendingPathComponent(
+            BookshelfViewModel.uniqueName(in: booksDir, preferredName: preferredName)
+        )
     }
 
     nonisolated static func uniqueName(in dir: URL, preferredName: String) -> String {
