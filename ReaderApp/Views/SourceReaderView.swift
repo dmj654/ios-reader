@@ -44,7 +44,7 @@ struct SourceReaderView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text(chapters.indices.contains(index) ? chapters[index].name : "…")
+                    Text(chapters.indices.contains(index) ? Purifier.cleanTitle(chapters[index].name) : "…")
                         .font(FontLibrary.font(name: readerFontName, size: fontSize + 4))
                         .fontWeight(.semibold)
                         .padding(.bottom, 2)
@@ -250,7 +250,7 @@ struct SourceReaderView: View {
                                 .monospacedDigit()
                                 .foregroundStyle(.tertiary)
                                 .frame(width: 34, alignment: .trailing)
-                            Text(chapters[i].name)
+                            Text(Purifier.cleanTitle(chapters[i].name))
                                 .font(.system(size: 14))
                                 .foregroundStyle(i == index ? Color.accentColor : Color.primary)
                             if i == index {
@@ -299,7 +299,7 @@ struct SourceReaderView: View {
 
         if force == false, let cached = cache[target] {
             index = target
-            text = cached
+            text = Purifier.clean(cached)
             loadedIndex = target
             errorText = nil
             loading = false
@@ -316,7 +316,7 @@ struct SourceReaderView: View {
         // 有离线缓存就直接用，断网也能看
         if force == false, let disk = ChapterCache.text(link: item.link, index: target) {
             cache[target] = disk
-            text = disk
+            text = Purifier.clean(disk)
             loading = false
             loadedIndex = target
             saveProgress()
@@ -330,7 +330,7 @@ struct SourceReaderView: View {
                 cache[target] = body
                 ChapterCache.store(link: item.link, index: target, text: body)
                 if index == target {
-                    text = body
+                    text = Purifier.clean(body)
                     loading = false
                     loadedIndex = target
                 }

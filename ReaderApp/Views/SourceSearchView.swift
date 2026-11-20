@@ -805,7 +805,7 @@ struct SourceBookView: View {
                                     .monospacedDigit()
                                     .foregroundStyle(.tertiary)
                                     .frame(width: 30, alignment: .trailing)
-                                Text(vm.chapters[index].name)
+                                Text(Purifier.cleanTitle(vm.chapters[index].name))
                                     .font(.system(size: 13))
                                     .foregroundStyle(.primary)
                                     .lineLimit(1)

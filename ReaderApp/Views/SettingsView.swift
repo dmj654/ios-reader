@@ -19,6 +19,7 @@ struct SettingsView: View {
     @State private var showManager = false
     @State private var showStats = false
     @ObservedObject private var fonts = FontStore.shared
+    @ObservedObject private var purifier = PurifierStore.shared
     @State private var fontMessage: String?
 
     var body: some View {
@@ -169,6 +170,25 @@ struct SettingsView: View {
                     Text("阅读统计")
                 } footer: {
                     Text("书架顶部显示今天读了多久、连续几天，点进去看热力图和排行。全部只存本机。")
+                }
+
+                Section {
+                    NavigationLink {
+                        PurifierView()
+                    } label: {
+                        HStack {
+                            Text("替换净化")
+                            Spacer()
+                            Text("\(purifier.activeCount) 条生效")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                    }
+                } header: {
+                    Text("净化")
+                } footer: {
+                    Text("按规则删掉正文里的网址、广告、求票尾巴，也能改章节标题。规则改了立刻生效，不用重开书。")
                 }
 
                 if let sources {
