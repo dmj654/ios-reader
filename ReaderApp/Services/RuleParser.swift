@@ -314,7 +314,7 @@ enum RuleParser {
 
         if let script = Self.extractJs(body) {
             if JSBridge.needsHostBinding(script) {
-                unsupported = "JS 规则用到了 java.ajax / org.jsoup 等宿主绑定，本机没实现"
+                unsupported = "JS 规则用到了 org.jsoup / Cookie 罐等宿主绑定，本机没实现"
                 return nil
             }
             return Part(kind: .js, path: script, steps: [])
