@@ -302,7 +302,7 @@ struct SettingsView: View {
         Section {
             HStack(spacing: 8) {
                 Image(systemName: backup.iCloudAvailable ? "icloud.fill" : "icloud.slash")
-                    .foregroundStyle(backup.iCloudAvailable ? .tint : .secondary)
+                    .foregroundStyle(backup.iCloudAvailable ? Color.accentColor : Color.secondary)
                 Text(backup.iCloudAvailable ? "iCloud 已连接" : "iCloud 不可用")
                 Spacer()
                 Text(backup.lastSyncedAt?.formatted(date: .abbreviated, time: .shortened) ?? "还没同步过")
