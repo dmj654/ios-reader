@@ -26,6 +26,7 @@ struct SourceReaderView: View {
     @State private var loadedIndex = -1
 
     @ObservedObject private var speech = SpeechReader.shared
+    @StateObject private var settings = ReadingSettings()
 
     init(source: BookSource, item: SourceItem, chapters: [SourceChapter], startIndex: Int) {
         self.source = source
@@ -39,7 +40,7 @@ struct SourceReaderView: View {
 
     var body: some View {
         ZStack {
-            Color(uiColor: .systemBackground)
+            settings.theme.background
                 .ignoresSafeArea()
 
             ScrollView {

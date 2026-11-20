@@ -51,6 +51,10 @@ struct SourceSearchView: View {
     @State private var filter: SourceFilter = .all
     @State private var mode: SearchMode = .search
 
+    /// 结果筛选：作者名 + 仅精确匹配书名
+    @State private var authorFilter = ""
+    @AppStorage("search.exactOnly") private var exactOnly = false
+
     @AppStorage("sourceSearchKeyword") private var storedKeyword = ""
     @State private var history: [String] = UserDefaults.standard.stringArray(forKey: "sourceSearchHistory") ?? []
     @AppStorage("sourceSearchFilter") private var storedFilter = SourceFilter.all.rawValue
@@ -73,6 +77,25 @@ struct SourceSearchView: View {
         let usable = scoped.filter { $0.searchUnsupportedReason == nil }
         usableSources = usable
         skippedCount = scoped.count - usable.count
+    }
+
+    /// 按作者名 / 精确匹配过滤后的结果
+    private var visibleResults: [SourceItem] {
+        let keyword = vm.keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        let author = authorFilter.trimmingCharacters(in: .whitespacesAndNewlines)
+        return vm.results.filter { item in
+            if exactOnly, Self.normalized(item.name) != Self.normalized(keyword) { return false }
+            if author.isEmpty == false, item.author.localizedCaseInsensitiveContains(author) == false { return false }
+            return true
+        }
+    }
+
+    private static func normalized(_ raw: String) -> String {
+        var out = ""
+        for character in raw.lowercased() where character.isLetter || character.isNumber {
+            out.append(character)
+        }
+        return out
     }
 
     var body: some View {
@@ -454,7 +477,31 @@ struct SourceSearchView: View {
             }
 
             Section {
-                ForEach(vm.results) { item in
+                HStack(spacing: 10) {
+                    Image(systemName: "person.text.rectangle")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                    TextField("按作者名筛选", text: $authorFilter)
+                        .textFieldStyle(.plain)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                    Button {
+                        exactOnly.toggle()
+                    } label: {
+                        Text(exactOnly ? "精确 · 开" : "精确")
+                            .font(.system(size: 11, weight: .medium))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(exactOnly ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.12),
+                                        in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.vertical, 4)
+            }
+
+            Section {
+                ForEach(visibleResults) { item in
                     Button {
                         selected = item
                     } label: {
@@ -489,7 +536,7 @@ struct SourceSearchView: View {
                     .buttonStyle(.plain)
                 }
             } header: {
-                Text("共 \(vm.results.count) 条结果")
+                Text("共 \(visibleResults.count) 条结果")
             } footer: {
                 Text("点进去可以直接在线阅读，不用先下载。")
             }
