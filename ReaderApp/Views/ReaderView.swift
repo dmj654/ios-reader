@@ -26,5 +26,7 @@ struct ReaderView: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
+        // 书架是 push 进来的，不清掉底部 tab 栏会一直压在正文下面
+        .toolbar(.hidden, for: .tabBar)
     }
 }
