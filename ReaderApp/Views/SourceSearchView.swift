@@ -39,7 +39,9 @@ struct SourceSearchView: View {
     @State private var showManager = false
     @State private var showCheck = false
     @State private var selected: SourceItem?
-    @State private var filter: SourceFilter = .all    @AppStorage("sourceSearchKeyword") private var storedKeyword = ""
+    @State private var filter: SourceFilter = .all
+
+    @AppStorage("sourceSearchKeyword") private var storedKeyword = ""
     @AppStorage("sourceSearchFilter") private var storedFilter = SourceFilter.all.rawValue
     /// 一次搜索最多动用多少个源（一千条源全发出去等于全超时）
     @AppStorage("sourceSearchLimit") private var searchLimit = 30

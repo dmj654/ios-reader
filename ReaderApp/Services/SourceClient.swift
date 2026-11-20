@@ -426,7 +426,7 @@ enum SourceClient {
             let sample = html.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
                 .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            lines.append("页面正文开头：\(String(sample.prefix(140))")
+            lines.append("页面正文开头：\(String(sample.prefix(140)))")
         } else {
             let names = nodes.prefix(3).compactMap { RuleParser.string(rule.name, in: $0, base: url) }
             let links = nodes.prefix(1).compactMap { RuleParser.string(rule.link, in: $0, base: url) }
