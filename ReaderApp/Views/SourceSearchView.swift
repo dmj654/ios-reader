@@ -38,6 +38,7 @@ struct SourceSearchView: View {
     @StateObject private var vm = SourceViewModel()
     @State private var showManager = false
     @State private var showCheck = false
+    @State private var showSkipped = false
     @State private var selected: SourceItem?
     @State private var filter: SourceFilter = .all
 
@@ -58,18 +59,22 @@ struct SourceSearchView: View {
         min(activeSources.count, max(1, searchLimit))
     }
 
-    /// 开着但规则不完整 / 缺 JS 引擎、没参与搜索的源
-    private var incompleteNotes: [String] {
-        let scoped = store.sources.filter { $0.enabled && (filter.type == nil || $0.type == filter.type) }
-        return scoped
-            .filter { $0.baseUrl.isEmpty || $0.search.list.isEmpty || $0.searchUnsupportedReason != nil }
-            .map { source -> String in
-                if let js = source.searchUnsupportedReason {
-                    return "「\(source.name)」用了 JS 规则（\(js)），本机没有 JS 引擎，没参与搜索"
-                }
-                return "「\(source.name)」规则不完整（\(SourceStore.problems(for: source).joined(separator: "、"))，没参与搜索"
-            }
+    /// 开着但用不了的源，按原因分成两类，只给数量，不再一条条刷屏
+    private var scopedEnabled: [BookSource] {
+        store.sources.filter { $0.enabled && (filter.type == nil || $0.type == filter.type) }
     }
+
+    private var jsSources: [BookSource] {
+        scopedEnabled.filter { $0.searchUnsupportedReason != nil }
+    }
+
+    private var brokenSources: [BookSource] {
+        scopedEnabled.filter { source in
+            source.searchUnsupportedReason == nil && (source.baseUrl.isEmpty || source.search.list.isEmpty)
+        }
+    }
+
+    private var skippedCount: Int { jsSources.count + brokenSources.count }
 
     var body: some View {
         NavigationStack {
@@ -123,6 +128,9 @@ struct SourceSearchView: View {
                 .sheet(isPresented: $showCheck) {
                     SourceCheckView(store: store)
                 }
+                .sheet(isPresented: $showSkipped) {
+                    SourceSkippedView(jsSources: jsSources, brokenSources: brokenSources, store: store)
+                }
                 .navigationDestination(item: $selected) { item in
                     if let source = store.sources.first(where: { $0.id == item.sourceID }) {
                         SourceBookView(item: item, source: source, shelf: shelf) { book in
@@ -167,15 +175,6 @@ struct SourceSearchView: View {
                 }
             }
             .padding(.horizontal, 16)
-
-            HStack(spacing: 5) {
-                Image(systemName: "info.circle")
-                Text("共 \(activeSources.count) 个可用源，按「以前搜成功过」优先取 \(effectiveCount) 个")
-            }
-            .font(.system(size: 10))
-            .foregroundStyle(.tertiary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 18)
         }
         .padding(.vertical, 8)
         .background(.bar)
@@ -221,88 +220,75 @@ struct SourceSearchView: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
                 .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var placeholder: some View {
-        ScrollView {
-            VStack(spacing: 14) {
-                Image(systemName: filter == .comic ? "photo.on.rectangle" : "magnifyingglass")
-                    .font(.system(size: 42, weight: .light))
+        VStack(spacing: 10) {
+            Spacer()
+
+            Image(systemName: filter == .comic ? "photo.on.rectangle" : "magnifyingglass")
+                .font(.system(size: 38, weight: .light))
+                .foregroundStyle(.tertiary)
+
+            if activeSources.isEmpty {
+                Text(filter == .comic ? "没有启用的漫画源" : "没有启用的小说源")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .padding(.top, 50)
-
-                Text("输入书名或作者后回车")
-                    .font(.title3.weight(.medium))
-
-                if activeSources.isEmpty {
-                    Text(filter == .comic ? "现在没有启用的漫画源" : "现在没有启用的小说源")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Button("打开书源管理") { showManager = true }
-                        .buttonStyle(.borderedProminent)
-                        .padding(.top, 6)
-                    Text("小说源和漫画源是分开管的，别把漫画源的规则填在小说源里。")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 30)
-                } else {
-                    Text("共 \(activeSources.count) 个可用\(filter == .all ? "" : filter.title)源，这次会搜 \(effectiveCount) 个（按以前搜成功过优先）")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 30)
-                }
-
-                if incompleteNotes.isEmpty == false {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(Array(incompleteNotes.enumerated()), id: \.offset) { _, line in
-                            Text(line)
-                                .font(.system(size: 11))
-                                .foregroundStyle(.orange)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                    .padding(12)
-                    .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-                    .padding(.horizontal, 20)
-                }
-
-                if let error = vm.errorMessage {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
-                        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-                        .padding(.horizontal, 20)
-                        .padding(.top, 8)
-                }
-
-                if vm.errorMessage != nil || activeSources.isEmpty == false {
-                    VStack(spacing: 6) {
-                        Button {
-                            showCheck = true
-                        } label: {
-                            Label("书源体检（找出哪些源真能搜到书）", systemImage: "stethoscope")
-                                .font(.system(size: 13, weight: .medium))
-                        }
-                        Text("一次测几十个源，直接告诉你哪些能用、哪些连不上，不用一千条一条条试。")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(.top, 6)
-                }
+                Button("去书源管理") { showManager = true }
+                    .buttonStyle(.bordered)
+                    .padding(.top, 2)
+            } else {
+                Text("输入书名或作者，回车搜索")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text("\(activeSources.count) 个源可用 · 本次搜 \(effectiveCount) 个")
+                    .font(.system(size: 11))
+                    .monospacedDigit()
+                    .foregroundStyle(.tertiary)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 40)
+
+            if skippedCount > 0 {
+                Button {
+                    showSkipped = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("跳过 \(skippedCount) 个用不了的源")
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9))
+                    }
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.orange.opacity(0.1), in: Capsule())
+                }
+                .padding(.top, 2)
+            }
+
+            Button {
+                showCheck = true
+            } label: {
+                Label("书源体检", systemImage: "stethoscope")
+                    .font(.system(size: 12))
+            }
+            .padding(.top, 4)
+
+            if let error = vm.errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                    .padding(.top, 6)
+            }
+
+            Spacer()
+            Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var resultList: some View {
@@ -331,7 +317,7 @@ struct SourceSearchView: View {
                 }
             }
 
-            if vm.failureBuckets.isEmpty == false || incompleteNotes.isEmpty == false {
+            if vm.failureBuckets.isEmpty == false || skippedCount > 0 {
                 Section {
                     ForEach(vm.failureBuckets) { bucket in
                         HStack(spacing: 8) {
@@ -364,15 +350,18 @@ struct SourceSearchView: View {
                         }
                     }
 
-                    ForEach(Array(incompleteNotes.prefix(4).enumerated()), id: \.offset) { _, line in
-                        Text(line)
-                            .font(.system(size: 10))
+                    if skippedCount > 0 {
+                        Button {
+                            showSkipped = true
+                        } label: {
+                            HStack(spacing: 5) {
+                                Text("另有 \(skippedCount) 个源规则用不了（JS / 缺字段），已跳过")
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 9))
+                            }
+                            .font(.system(size: 11))
                             .foregroundStyle(.secondary)
-                    }
-                    if incompleteNotes.count > 4 {
-                        Text("还有 \(incompleteNotes.count - 4) 个源规则不完整，去书源管理看")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
+                        }
                     }
 
                     Button {
@@ -456,6 +445,74 @@ struct SourceSearchView: View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
         )
+    }
+}
+
+// MARK: - 用不了的源清单
+
+struct SourceSkippedView: View {
+    let jsSources: [BookSource]
+    let brokenSources: [BookSource]
+    @ObservedObject var store: SourceStore
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if jsSources.isEmpty == false {
+                    Section {
+                        ForEach(jsSources.prefix(60)) { source in
+                            Text(source.name)
+                                .font(.system(size: 13))
+                                .lineLimit(1)
+                        }
+                        if jsSources.count > 60 {
+                            Text("还有 \(jsSources.count - 60) 个，同理")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.tertiary)
+                        }
+                        Button(role: .destructive) {
+                            store.setEnabled(ids: Set(jsSources.map(\.id)), enabled: false)
+                            store.flushPendingSave()
+                            dismiss()
+                        } label: {
+                            Label("把这 \(jsSources.count) 个停用", systemImage: "pause.circle")
+                                .font(.system(size: 13))
+                        }
+                    } header: {
+                        Text("JS 规则 · \(jsSources.count) 个")
+                    } footer: {
+                        Text("搜索地址或规则里带了 <js> 脚本。本机没有 JS 引擎，这类源永远搜不到，建议直接停用。")
+                    }
+                }
+
+                if brokenSources.isEmpty == false {
+                    Section {
+                        ForEach(brokenSources.prefix(60)) { source in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(source.name)
+                                    .font(.system(size: 13))
+                                    .lineLimit(1)
+                                Text("缺 \(SourceStore.problems(for: source).joined(separator: "、"))")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                    } header: {
+                        Text("规则不完整 · \(brokenSources.count) 个")
+                    } footer: {
+                        Text("没填站点地址或搜索列表规则，改好规则才能用。")
+                    }
+                }
+            }
+            .navigationTitle("用不了的源")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
     }
 }
 
