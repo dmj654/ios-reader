@@ -847,7 +847,7 @@ struct SourceBookView: View {
                                     .monospacedDigit()
                                     .foregroundStyle(.tertiary)
                                     .frame(width: 30, alignment: .trailing)
-                                Text(Purifier.cleanTitle(vm.chapters[index].name))
+                                Text(TextScript.convert(Purifier.cleanTitle(vm.chapters[index].name), mode: scriptMode))
                                     .font(.system(size: 13))
                                     .foregroundStyle(.primary)
                                     .lineLimit(1)
@@ -937,6 +937,11 @@ struct SourceBookView: View {
 
     private func refreshCached() {
         cachedCount = ChapterCache.cachedCount(link: item.link)
+    }
+
+    /// 简繁显示方式（跟设置页一致）
+    private var scriptMode: TextScript {
+        TextScript(rawValue: UserDefaults.standard.string(forKey: "reader.scriptMode") ?? "") ?? .auto
     }
 
     private var switchSheet: some View {
@@ -1044,7 +1049,7 @@ struct SourceBookView: View {
                                     .monospacedDigit()
                                     .foregroundStyle(.tertiary)
                                     .frame(width: 30, alignment: .trailing)
-                                Text(Purifier.cleanTitle(entry.chapter.name))
+                                Text(TextScript.convert(Purifier.cleanTitle(entry.chapter.name), mode: scriptMode))
                                     .font(.system(size: 13))
                                     .lineLimit(1)
                                 Spacer(minLength: 0)

@@ -71,11 +71,11 @@ enum FontLibrary {
 
     // MARK: - 取字体
 
-    static func uiFont(name: String?, size: CGFloat) -> UIFont {
+    static func uiFont(name: String?, size: CGFloat, weight: UIFont.Weight = .regular) -> UIFont {
         if let name, let font = UIFont(name: name, size: size) {
             return font
         }
-        return UIFont.systemFont(ofSize: size)
+        return UIFont.systemFont(ofSize: size, weight: weight)
     }
 
     static func font(name: String?, size: CGFloat) -> Font {

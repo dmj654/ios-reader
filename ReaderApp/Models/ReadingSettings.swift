@@ -221,6 +221,18 @@ final class ReadingSettings: ObservableObject {
             }
         }
     }
+    /// 段落之间的间距（pt）
+    @Published var paragraphSpacing: Double {
+        didSet { defaults.set(paragraphSpacing, forKey: Keys.paragraphSpacing) }
+    }
+    /// 正文加粗
+    @Published var boldBody: Bool {
+        didSet { defaults.set(boldBody, forKey: Keys.boldBody) }
+    }
+    /// 简繁显示方式
+    @Published var scriptMode: TextScript {
+        didSet { defaults.set(scriptMode.rawValue, forKey: Keys.scriptMode) }
+    }
 
     // 漫画
     @Published var comicFit: ComicFitMode {
@@ -277,6 +289,9 @@ final class ReadingSettings: ObservableObject {
         static let theme = "reader.theme"
         static let pageTurn = "reader.pageTurn"
         static let fontName = "reader.fontName"
+        static let paragraphSpacing = "reader.paragraphSpacing"
+        static let boldBody = "reader.boldBody"
+        static let scriptMode = "reader.scriptMode"
         static let comicFit = "reader.comicFit"
         static let comicDirection = "reader.comicDirection"
         static let comicMode = "reader.comicMode"
@@ -304,6 +319,9 @@ final class ReadingSettings: ObservableObject {
         self.theme = ReaderTheme(rawValue: d.string(forKey: Keys.theme) ?? "") ?? .paper
         self.pageTurn = PageTurnStyle(rawValue: d.string(forKey: Keys.pageTurn) ?? "") ?? .slide
         self.fontName = d.string(forKey: Keys.fontName)
+        self.paragraphSpacing = (d.object(forKey: Keys.paragraphSpacing) as? Double) ?? 6
+        self.boldBody = (d.object(forKey: Keys.boldBody) as? Bool) ?? false
+        self.scriptMode = TextScript(rawValue: d.string(forKey: Keys.scriptMode) ?? "") ?? .auto
 
         self.comicFit = ComicFitMode(rawValue: d.string(forKey: Keys.comicFit) ?? "")
             ?? ((oldFitWidth == true) ? .width : .screen)

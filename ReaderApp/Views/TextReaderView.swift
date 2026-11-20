@@ -134,6 +134,8 @@ struct TextReaderView: View {
         .onChange(of: settings.fontSize) { _, _ in repaginate(keepingOffset: true) }
         .onChange(of: settings.lineSpacing) { _, _ in repaginate(keepingOffset: true) }
         .onChange(of: settings.fontName) { _, _ in repaginate(keepingOffset: true) }
+        .onChange(of: settings.paragraphSpacing) { _, _ in repaginate(keepingOffset: true) }
+        .onChange(of: settings.boldBody) { _, _ in repaginate(keepingOffset: true) }
         .onDisappear {
             speech.stop()
             saveProgress()
@@ -174,12 +176,15 @@ struct TextReaderView: View {
     private func pageAttributedString(_ range: NSRange) -> NSAttributedString {
         let ns = flatText as NSString
         let clamped = NSIntersectionRange(range, NSRange(location: 0, length: ns.length))
-        let slice = ns.substring(with: clamped)
+        let rawSlice = ns.substring(with: clamped)
+        let slice = TextScript.convert(rawSlice, mode: settings.scriptMode)
         let attrs = TextPaginator.attributes(
             fontSize: settings.fontSize,
             lineSpacing: settings.lineSpacing,
             color: UIColor(settings.theme.foreground),
-            fontName: settings.fontName
+            fontName: settings.fontName,
+            paragraphSpacing: settings.paragraphSpacing,
+            bold: settings.boldBody
         )
         return NSAttributedString(string: slice, attributes: attrs)
     }
@@ -745,7 +750,9 @@ struct TextReaderView: View {
             fontSize: settings.fontSize,
             lineSpacing: settings.lineSpacing,
             color: UIColor(settings.theme.foreground),
-            fontName: settings.fontName
+            fontName: settings.fontName,
+            paragraphSpacing: settings.paragraphSpacing,
+            bold: settings.boldBody
         )
 
         let ns = flatText as NSString

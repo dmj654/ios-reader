@@ -46,6 +46,23 @@ struct SettingsView: View {
                         }
                         Slider(value: $settings.lineSpacing, in: 2...18, step: 1)
                     }
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("段距")
+                            Spacer()
+                            Text(String(format: "%.0f", settings.paragraphSpacing))
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        Slider(value: $settings.paragraphSpacing, in: 0...16, step: 1)
+                    }
+                    Toggle("正文加粗", isOn: $settings.boldBody)
+                    Picker("简繁显示", selection: $settings.scriptMode) {
+                        ForEach(TextScript.allCases) { mode in
+                            Text(mode.name).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
                 } header: {
                     Text("排版")
                 }

@@ -44,7 +44,7 @@ struct SourceReaderView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text(chapters.indices.contains(index) ? Purifier.cleanTitle(chapters[index].name) : "…")
+                    Text(TextScript.convert(Purifier.cleanTitle(chapters.indices.contains(index) ? chapters[index].name : "…"), mode: scriptMode))
                         .font(FontLibrary.font(name: readerFontName, size: fontSize + 4))
                         .fontWeight(.semibold)
                         .padding(.bottom, 2)
@@ -68,8 +68,9 @@ struct SourceReaderView: View {
                         }
                         .padding(.top, 30)
                     } else {
-                        Text(text)
+                        Text(TextScript.convert(text, mode: scriptMode))
                             .font(FontLibrary.font(name: readerFontName, size: fontSize))
+                            .fontWeight(bodyBold ? .semibold : .regular)
                             .lineSpacing(fontSize * 0.55)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -250,7 +251,7 @@ struct SourceReaderView: View {
                                 .monospacedDigit()
                                 .foregroundStyle(.tertiary)
                                 .frame(width: 34, alignment: .trailing)
-                            Text(Purifier.cleanTitle(chapters[i].name))
+                        Text(TextScript.convert(Purifier.cleanTitle(chapters[i].name), mode: scriptMode))
                                 .font(.system(size: 14))
                                 .foregroundStyle(i == index ? Color.accentColor : Color.primary)
                             if i == index {
@@ -283,6 +284,16 @@ struct SourceReaderView: View {
     /// 正文用哪款字体（在「设置」里选的），没选就是系统字体
     private var readerFontName: String? {
         UserDefaults.standard.string(forKey: "reader.fontName")
+    }
+
+    /// 正文是否加粗
+    private var bodyBold: Bool {
+        UserDefaults.standard.bool(forKey: "reader.boldBody")
+    }
+
+    /// 简繁显示方式
+    private var scriptMode: TextScript {
+        TextScript(rawValue: UserDefaults.standard.string(forKey: "reader.scriptMode") ?? "") ?? .auto
     }
 
     /// 改语速后从本章开头重读，不然要等下一段才生效
