@@ -22,8 +22,14 @@ struct SettingsView: View {
     @ObservedObject private var fonts = FontStore.shared
     @ObservedObject private var purifier = PurifierStore.shared
     @ObservedObject private var backup = BackupStore.shared
+    @ObservedObject private var dav = WebDAVStore.shared
     @State private var fontMessage: String?
     @State private var backupMessage: String?
+    @State private var showWebDAV = false
+    @State private var davServer = ""
+    @State private var davUser = ""
+    @State private var davPass = ""
+    @State private var davMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -279,6 +285,63 @@ struct SettingsView: View {
             .sheet(isPresented: $showStats) {
                 StatsView(store: ReadingStatsStore.shared, books: books)
             }
+            .sheet(isPresented: $showWebDAV) {
+                NavigationStack {
+                    Form {
+                        Section {
+                            TextField("服务器地址", text: $davServer)
+                                .keyboardType(.URL)
+                                .autocapitalization(.none)
+                                .disableAutocorrection(true)
+                            TextField("用户名", text: $davUser)
+                                .autocapitalization(.none)
+                                .disableAutocorrection(true)
+                            SecureField("密码", text: $davPass)
+                        } footer: {
+                            Text("例如 Nextcloud：https://dav.example.com/remote.php/dav/files/用户名。地址、账号密码只存在本机。")
+                        }
+
+                        Section {
+                            Button {
+                                saveWebDAV()
+                            } label: {
+                                HStack {
+                                    Spacer()
+                                    if dav.busy {
+                                        ProgressView()
+                                    } else {
+                                        Text("保存并测试连接")
+                                    }
+                                    Spacer()
+                                }
+                            }
+                            .disabled(dav.busy)
+
+                            if dav.configured {
+                                Button(role: .destructive) {
+                                    dav.clearConfig()
+                                    davMessage = "已清除 WebDAV 配置。"
+                                } label: {
+                                    Label("清除配置", systemImage: "trash")
+                                }
+                            }
+
+                            if let davMessage {
+                                Text(davMessage)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .navigationTitle("WebDAV 备份")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("完成") { showWebDAV = false }
+                        }
+                    }
+                }
+            }
             .alert("字体", isPresented: Binding(
                 get: { fontMessage != nil },
                 set: { if $0 == false { fontMessage = nil } }
@@ -330,10 +393,48 @@ struct SettingsView: View {
                     Label("立即同步到 iCloud", systemImage: "icloud.and.arrow.up")
                 }
             }
+
+            Divider()
+
+            HStack(spacing: 8) {
+                Image(systemName: dav.configured ? "externaldrive.fill" : "externaldrive")
+                    .foregroundStyle(dav.configured ? Color.accentColor : Color.secondary)
+                Text(dav.configured ? "WebDAV 已配置" : "WebDAV 未配置")
+                Spacer()
+                if let t = dav.lastSyncedAt {
+                    Text(t.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Button {
+                davServer = dav.server
+                davUser = dav.username
+                davPass = dav.password
+                davMessage = nil
+                showWebDAV = true
+            } label: {
+                Label(dav.configured ? "WebDAV 设置" : "配置 WebDAV", systemImage: "internaldrive")
+            }
+
+            if dav.configured {
+                Button {
+                    uploadToWebDAV()
+                } label: {
+                    Label("上传备份到 WebDAV", systemImage: "arrow.up.circle")
+                }
+
+                Button {
+                    restoreFromWebDAV()
+                } label: {
+                    Label("从 WebDAV 恢复", systemImage: "arrow.down.circle")
+                }
+            }
         } header: {
             Text("备份与同步")
         } footer: {
-            Text("备份包含书架、阅读进度、书签、书源、净化规则、阅读统计、设置和字体；书籍本体不进备份，需通过「文件」App 另行拷贝。侧载签名下 iCloud 容器可能拿不到，这时用导出 / 导入备份文件即可。")
+            Text("备份包含书架、阅读进度、书签、书源、净化规则、阅读统计、设置和字体；书籍本体不进备份，需通过「文件」App 另行拷贝。iCloud 容器拿不到时可用 WebDAV 或备份文件。")
         }
     }
 
@@ -368,6 +469,38 @@ struct SettingsView: View {
                 } catch {
                     backupMessage = "恢复失败：\(error.localizedDescription)"
                 }
+            }
+        }
+    }
+
+    private func saveWebDAV() {
+        dav.saveConfig(server: davServer, username: davUser, password: davPass)
+        Task { @MainActor in
+            davMessage = await dav.testConnection()
+        }
+    }
+
+    private func uploadToWebDAV() {
+        Task { @MainActor in
+            do {
+                let data = try backup.currentBackupData()
+                try await dav.upload(backup: data, stamp: Date())
+                backupMessage = "已上传到 WebDAV。"
+            } catch {
+                backupMessage = "WebDAV 上传失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func restoreFromWebDAV() {
+        Task { @MainActor in
+            do {
+                let data = try await dav.download()
+                try backup.restore(data: data)
+                backup.reloadAllStores(shelf: shelf)
+                backupMessage = "已从 WebDAV 恢复，书架、进度和书源已还原。"
+            } catch {
+                backupMessage = "WebDAV 恢复失败：\(error.localizedDescription)"
             }
         }
     }

@@ -17,6 +17,9 @@ struct ReaderApp: App {
         // iCloud 拉取远端配置；容器拿不到时自动降级，不影响本机使用
         _ = BackupStore.shared
         BackupStore.shared.pullFromICloud()
+        // WebDAV 通道：配了才会联网拉取，没配置直接跳过
+        _ = WebDAVStore.shared
+        BackupStore.shared.pullFromWebDAV()
     }
 
     var body: some Scene {

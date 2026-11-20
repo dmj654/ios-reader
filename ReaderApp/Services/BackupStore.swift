@@ -100,26 +100,46 @@ final class BackupStore: ObservableObject {
         return entries
     }
 
-    // MARK: - 本地备份 / 恢复
+    // MARK: - 打包
 
-    /// 打包成 .readerbackup，返回临时文件路径（交给文件选择器导出）
-    func exportBackup() throws -> URL {
+    private func makeBackup() throws -> (data: Data, stamp: Date) {
         var entries = collectEntries()
         let stamp = Date()
         let meta = SyncMeta(exportedAt: stamp)
         if let data = try? JSONEncoder().encode(meta) {
             entries.append(("meta.json", data))
         }
+        let data = MiniZip.make(entries: entries)
+        return (data, stamp)
+    }
+
+    /// 供 WebDAV / 其他通道直接拿备份二进制
+    func currentBackupData() throws -> Data {
+        try makeBackup().data
+    }
+
+    // MARK: - 本地备份 / 恢复
+
+    /// 打包成 .readerbackup，返回临时文件路径（交给文件选择器导出）
+    func exportBackup() throws -> URL {
+        let made = try makeBackup()
 
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd-HHmm"
         let out = fm.temporaryDirectory
-            .appendingPathComponent("ReaderBackup-\(formatter.string(from: stamp)).readerbackup")
+            .appendingPathComponent("ReaderBackup-\(formatter.string(from: made.stamp)).readerbackup")
         try? fm.removeItem(at: out)
 
-        let data = MiniZip.make(entries: entries)
-        try data.write(to: out, options: .atomic)
+        try made.data.write(to: out, options: .atomic)
         return out
+    }
+
+    /// 从二进制恢复（WebDAV 拉回的数据包走这里）
+    func restore(data: Data) throws {
+        let tmp = fm.temporaryDirectory.appendingPathComponent("restore-\(UUID().uuidString).readerbackup")
+        try data.write(to: tmp, options: .atomic)
+        defer { try? fm.removeItem(at: tmp) }
+        try restore(from: tmp)
     }
 
     /// 从备份包恢复（本地导入 / iCloud 拉取共用）
@@ -184,16 +204,10 @@ final class BackupStore: ObservableObject {
         guard let dir = iCloudSyncDir else { return }
         do {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-            var entries = collectEntries()
-            let stamp = Date()
-            let meta = SyncMeta(exportedAt: stamp)
-            if let data = try? JSONEncoder().encode(meta) {
-                entries.append(("meta.json", data))
-            }
-            let data = MiniZip.make(entries: entries)
-            try data.write(to: dir.appendingPathComponent("backup.readerbackup"), options: .atomic)
-            UserDefaults.standard.set(stamp, forKey: "backup.lastSyncedAt")
-            lastSyncedAt = stamp
+            let made = try makeBackup()
+            try made.data.write(to: dir.appendingPathComponent("backup.readerbackup"), options: .atomic)
+            UserDefaults.standard.set(made.stamp, forKey: "backup.lastSyncedAt")
+            lastSyncedAt = made.stamp
         } catch {
             statusText = "iCloud 上传失败：\(error.localizedDescription)"
         }
@@ -216,6 +230,40 @@ final class BackupStore: ObservableObject {
             lastSyncedAt = meta.exportedAt
         } catch {
             statusText = "iCloud 恢复失败：\(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - WebDAV 自动同步
+
+    /// 把当前配置推到 WebDAV 服务器
+    func pushToWebDAV() {
+        let web = WebDAVStore.shared
+        guard web.configured else { return }
+        Task { @MainActor in
+            do {
+                let made = try makeBackup()
+                try await web.upload(backup: made.data, stamp: made.stamp)
+            } catch {
+                statusText = "WebDAV 上传失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// 启动时拉取：远端比本地新就恢复远端配置
+    func pullFromWebDAV() {
+        let web = WebDAVStore.shared
+        guard web.configured else { return }
+        Task { @MainActor in
+            do {
+                guard let meta = try await web.remoteMeta() else { return }
+                let local = web.lastSyncedAt ?? .distantPast
+                guard meta.exportedAt > local else { return }
+                let data = try await web.download()
+                try restore(data: data)
+                web.markSynced(meta.exportedAt)
+            } catch {
+                statusText = "WebDAV 恢复失败：\(error.localizedDescription)"
+            }
         }
     }
 
