@@ -94,7 +94,7 @@ enum JSBridge {
         if let out = value?.toString(), out.isEmpty == false { return out }
         let resultValue = context.objectForKeyedSubscript("result")
         if let resultValue = resultValue {
-            let resultText = resultValue.toString()
+            let resultText = resultValue.toString() ?? ""
             if resultText.isEmpty == false { return resultText }
         }
         return nil
