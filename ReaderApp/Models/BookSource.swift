@@ -62,8 +62,7 @@ struct SearchRule: Codable, Hashable {
     }
 }
 
-struct ChapterRule: Codable, Hashable {
-    var url: String = "{{link}}"
+struct ChapterRule: Codable, Hashable {    var url: String = "{{link}}"
     var list: String = ""
     var name: String = ""
     var link: String = ""
@@ -114,6 +113,15 @@ struct ContentRule: Codable, Hashable {
     }
 }
 
+// MARK: - 发现页分类
+
+/// 发现页分类链接（Legado exploreUrl 解析结果）
+struct ExploreLink: Identifiable, Codable, Hashable {
+    var id: UUID { UUID() }
+    var title: String
+    var url: String
+}
+
 // MARK: - 书源
 
 struct BookSource: Identifiable, Codable, Hashable {
@@ -128,6 +136,10 @@ struct BookSource: Identifiable, Codable, Hashable {
     var search: SearchRule = SearchRule()
     var chapters: ChapterRule = ChapterRule()
     var content: ContentRule = ContentRule()
+    /// 发现页 / 分类页的书单规则（缺省时回退用搜索规则）
+    var explore: SearchRule = SearchRule()
+    /// 发现页分类入口（Legado exploreUrl）
+    var exploreLinks: [ExploreLink] = []
     /// Legado 的 bookSourceGroup（多个组用逗号隔开，这里取第一个）
     var group: String?
     /// 搜索成功次数（用来把能用的源排前面）
@@ -152,7 +164,7 @@ struct BookSource: Identifiable, Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, baseUrl, headers, enabled, search, chapters, content
-        case group, successCount, failCount, lastSuccessAt, lastUsedAt
+        case explore, exploreLinks, group, successCount, failCount, lastSuccessAt, lastUsedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -166,6 +178,8 @@ struct BookSource: Identifiable, Codable, Hashable {
         search = try c.decodeIfPresent(SearchRule.self, forKey: .search) ?? SearchRule()
         chapters = try c.decodeIfPresent(ChapterRule.self, forKey: .chapters) ?? ChapterRule()
         content = try c.decodeIfPresent(ContentRule.self, forKey: .content) ?? ContentRule()
+        explore = try c.decodeIfPresent(SearchRule.self, forKey: .explore) ?? SearchRule()
+        exploreLinks = try c.decodeIfPresent([ExploreLink].self, forKey: .exploreLinks) ?? []
         group = try c.decodeIfPresent(String.self, forKey: .group)
         successCount = try c.decodeIfPresent(Int.self, forKey: .successCount) ?? 0
         failCount = try c.decodeIfPresent(Int.self, forKey: .failCount) ?? 0
@@ -270,7 +284,8 @@ struct BookSource: Identifiable, Codable, Hashable {
     /// 规则里有没有本机引擎做不到的东西（JS）。
     /// 这里只做字符串判断——一千条源在列表里每帧都要算，不能跑解析器
     var searchUnsupportedReason: String? {
-        for raw in [search.url, search.body ?? "", search.list, search.name, search.link, search.cover] {
+        for raw in [search.url, search.body ?? "", search.list, search.name, search.link, search.cover,
+                    explore.list, explore.name, explore.link, explore.cover] {
             if raw.contains("<js>") || raw.contains("@js:") { return "JS 规则" }
         }
         return nil

@@ -29,6 +29,12 @@ enum SourceFilter: String, CaseIterable, Identifiable {
     }
 }
 
+private enum SearchMode: String, CaseIterable, Identifiable {
+    case search, discover
+    var id: String { rawValue }
+    var title: String { self == .search ? "搜索" : "发现" }
+}
+
 struct SourceSearchView: View {
     @ObservedObject var shelf: BookshelfViewModel
     @ObservedObject var store: SourceStore
@@ -43,6 +49,7 @@ struct SourceSearchView: View {
     @State private var showSkipped = false
     @State private var selected: SourceItem?
     @State private var filter: SourceFilter = .all
+    @State private var mode: SearchMode = .search
 
     @AppStorage("sourceSearchKeyword") private var storedKeyword = ""
     @State private var history: [String] = UserDefaults.standard.stringArray(forKey: "sourceSearchHistory") ?? []
@@ -81,34 +88,40 @@ struct SourceSearchView: View {
 
     var body: some View {
         NavigationStack {
-            content
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    filterBar
-                }
-                .navigationTitle("找书")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    if embedded == false {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button("关闭") { dismiss() }
+            Group {
+                if mode == .search {
+                    searchContent
+                        .searchable(
+                            text: $vm.keyword,
+                            placement: .navigationBarDrawer(displayMode: .always),
+                            prompt: filter == .comic ? "漫画名 / 作者，回车搜索" : "书名 / 作者，回车搜索"
+                        )
+                        .onSubmit(of: .search) {
+                            Task { await runSearch() }
                         }
-                    }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            showManager = true
-                        } label: {
-                            Image(systemName: "globe")
-                        }
+                } else {
+                    DiscoverView(store: store, onSelect: { selected = $0 })
+                }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                filterBar
+            }
+            .navigationTitle("找书")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if embedded == false {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("关闭") { dismiss() }
                     }
                 }
-                .searchable(
-                    text: $vm.keyword,
-                    placement: .navigationBarDrawer(displayMode: .always),
-                    prompt: filter == .comic ? "漫画名 / 作者，回车搜索" : "书名 / 作者，回车搜索"
-                )
-                .onSubmit(of: .search) {
-                    Task { await runSearch() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showManager = true
+                    } label: {
+                        Image(systemName: "globe")
+                    }
                 }
+            }
                 .onAppear {
                     if vm.keyword.isEmpty, storedKeyword.isEmpty == false {
                         vm.keyword = storedKeyword
@@ -151,41 +164,51 @@ struct SourceSearchView: View {
 
     private var filterBar: some View {
         VStack(spacing: 6) {
-            HStack(spacing: 10) {
-                Picker("", selection: $filter) {
-                    ForEach(SourceFilter.allCases) { item in
-                        Text(item.title).tag(item)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                Menu {
-                    Picker("一次搜几个源", selection: $searchLimit) {
-                        Text("30 个").tag(30)
-                        Text("60 个").tag(60)
-                        Text("100 个").tag(100)
-                        Text("全部").tag(9999)
-                    }
-                } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: "dial.medium")
-                        Text("\(effectiveCount)")
-                            .monospacedDigit()
-                    }
-                    .font(.system(size: 12, weight: .medium))
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 6)
-                    .background(Color.secondary.opacity(0.14), in: Capsule())
+            Picker("", selection: $mode) {
+                ForEach(SearchMode.allCases) { item in
+                    Text(item.title).tag(item)
                 }
             }
+            .pickerStyle(.segmented)
             .padding(.horizontal, 16)
+
+            if mode == .search {
+                HStack(spacing: 10) {
+                    Picker("", selection: $filter) {
+                        ForEach(SourceFilter.allCases) { item in
+                            Text(item.title).tag(item)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Menu {
+                        Picker("一次搜几个源", selection: $searchLimit) {
+                            Text("30 个").tag(30)
+                            Text("60 个").tag(60)
+                            Text("100 个").tag(100)
+                            Text("全部").tag(9999)
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "dial.medium")
+                            Text("\(effectiveCount)")
+                                .monospacedDigit()
+                        }
+                        .font(.system(size: 12, weight: .medium))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 6)
+                        .background(Color.secondary.opacity(0.14), in: Capsule())
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
         }
         .padding(.vertical, 8)
         .background(.bar)
     }
 
     @ViewBuilder
-    private var content: some View {
+    private var searchContent: some View {
         if vm.searching && vm.results.isEmpty {
             searchingPlaceholder
         } else if vm.results.isEmpty {

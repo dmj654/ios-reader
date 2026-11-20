@@ -109,6 +109,7 @@ enum LegadoBridge {
             let tocMap = dictionary(raw, "ruleToc")
             let contentMap = dictionary(raw, "ruleContent")
             let infoMap = dictionary(raw, "ruleBookInfo")
+            let exploreMap = dictionary(raw, "ruleExplore")
 
             var listNodes = string(searchMap, "bookList")
             if listNodes.isEmpty { listNodes = string(infoMap, "init") }
@@ -142,6 +143,18 @@ enum LegadoBridge {
                     text: type == .novel ? contentRule : "",
                     images: type == .comic ? imageRule : ""
                 ),
+                explore: SearchRule(
+                    url: "",
+                    method: "GET",
+                    headers: headers,
+                    body: nil,
+                    list: string(exploreMap, "bookList"),
+                    name: string(exploreMap, "name"),
+                    author: string(exploreMap, "author"),
+                    cover: string(exploreMap, "coverUrl"),
+                    link: string(exploreMap, "bookUrl")
+                ),
+                exploreLinks: parseExploreLinks(raw["exploreUrl"]),
                 headers: headers
             )
             converted.group = firstGroup(string(raw, "bookSourceGroup"))
@@ -184,8 +197,29 @@ enum LegadoBridge {
         return ""
     }
 
-    private static func dictionary(_ dict: [String: Any], _ key: String) -> [String: Any] {
-        if let nested = dict[key] as? [String: Any] { return nested }
+    /// 解析 Legado 的 exploreUrl：支持 JSON 数组，或「标题,链接」逐行文本
+    private static func parseExploreLinks(_ value: Any?) -> [ExploreLink] {
+        if let arr = value as? [[String: Any]] {
+            return arr.compactMap { item in
+                let title = string(item, "title").isEmpty ? string(item, "name") : string(item, "title")
+                let url = string(item, "url").isEmpty ? string(item, "bookUrl") : string(item, "url")
+                guard title.isEmpty == false, url.isEmpty == false else { return nil }
+                return ExploreLink(title: title, url: url)
+            }
+        }
+        guard let text = value as? String else { return [] }
+        var links: [ExploreLink] = []
+        for line in text.split(whereSeparator: { $0.isNewline }) {
+            let parts = line.split(whereSeparator: { $0 == "," || $0 == "，" })
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            if parts.count == 2, parts[0].isEmpty == false, parts[1].isEmpty == false {
+                links.append(ExploreLink(title: parts[0], url: parts[1]))
+            }
+        }
+        return links
+    }
+
+    private static func dictionary(_ dict: [String: Any], _ key: String) -> [String: Any] {        if let nested = dict[key] as? [String: Any] { return nested }
         if let text = dict[key] as? String,
            let data = text.data(using: .utf8),
            let nested = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {

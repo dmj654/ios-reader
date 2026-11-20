@@ -138,6 +138,60 @@ enum SourceClient {
 
     // MARK: - 目录
 
+    /// 从一组节点里提取书单（搜索 / 发现共用）
+    private static func parseItems(rule: SearchRule, root: RuleNode, base: String, source: BookSource) -> [SourceItem] {
+        let listNodes = RuleParser.nodes(rule.list, in: root, base: base)
+        var items: [SourceItem] = []
+        var seen = Set<String>()
+
+        for node in listNodes {
+            guard let name = RuleParser.string(rule.name, in: node, base: base)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  name.isEmpty == false else { continue }
+            guard let link = RuleParser.string(rule.link, in: node, base: base)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  link.isEmpty == false else { continue }
+            if seen.contains(link) { continue }
+            seen.insert(link)
+
+            let author = RuleParser.string(rule.author, in: node, base: base) ?? ""
+            let cover = RuleParser.string(rule.cover, in: node, base: base) ?? ""
+
+            items.append(
+                SourceItem(
+                    name: name,
+                    author: author,
+                    cover: cover,
+                    link: link,
+                    sourceID: source.id,
+                    sourceName: source.name,
+                    type: source.type
+                )
+            )
+        }
+        return items
+    }
+
+    /// 发现页：按分类链接拉书单；发现规则缺省时回退搜索规则
+    static func discover(source: BookSource, link: ExploreLink, page: Int = 1) async throws -> [SourceItem] {
+        let rule = source.explore.list.isEmpty ? source.search : source.explore
+        let url = RuleParser.absolutize(link.url, base: source.baseUrl)
+        let html = try await fetchText(
+            url: url,
+            source: source,
+            method: "GET",
+            body: nil,
+            referer: source.baseUrl,
+            extraHeaders: rule.headers
+        )
+        guard let root = RuleParser.parseHTML(html) else {
+            throw SourceFailure(message: "页面解析失败")
+        }
+        let items = parseItems(rule: rule, root: root, base: url, source: source)
+        if items.isEmpty {
+            throw SourceFailure(message: "这个分类里提取不到书单，可能是站点改版或规则写错")
+        }
+        return items
+    }
+
     static func chapters(source: BookSource, item: SourceItem) async throws -> BookDetail {
         let rule = source.chapters
         let rawVar = expand(rule.url, keyword: item.name, page: 1, link: item.link, base: source.baseUrl)
