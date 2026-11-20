@@ -41,6 +41,11 @@ enum BookFormat: String, Codable, Hashable, CaseIterable {
     static func detect(for url: URL) -> BookFormat? {
         if let f = from(fileURL: url) { return f }
 
+        // v1.8.2：有扩展名但不是支持格式 → 直接判「不是书」，不再猜内容。
+        // 以前这里会继续嗅探，结果书源文件 sources.json / bookmarks.json 被当成 TXT
+        // 收进书架（还被改名成 .txt 搬进 Books/），书源文件因此消失。
+        if url.pathExtension.isEmpty == false { return nil }
+
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
         let head = (try? handle.read(upToCount: 8)) ?? Data()

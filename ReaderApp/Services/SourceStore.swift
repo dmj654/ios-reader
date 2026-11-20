@@ -15,11 +15,33 @@ final class SourceStore: ObservableObject {
     @Published var lastError: String?
 
     private var storeURL: URL {
+        sourcesDir.appendingPathComponent("sources.json")
+    }
+
+    private var backupURL: URL {
+        sourcesDir.appendingPathComponent("sources.backup.json")
+    }
+
+    /// v1.8.2：书源搬进 Documents/Sources/ 子目录。
+    /// 以前放在 Documents 根目录，而书架的「扫描松散文件」会把根目录里所有认得出的文件
+    /// 收进书架 —— 于是 sources.json 被当成 TXT 改名叫 sources.txt 搬进 Books/，
+    /// 结果：书架里多出一本「书源」，同时书源文件不见了（下次启动就读不到书源）。
+    private var sourcesDir: URL {
+        let fm = FileManager.default
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let dir = docs.appendingPathComponent("Sources", isDirectory: true)
+        if fm.fileExists(atPath: dir.path) == false {
+            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    private var legacyStoreURL: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("sources.json")
     }
 
-    private var backupURL: URL {
+    private var legacyBackupURL: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("sources.backup.json")
     }
@@ -38,6 +60,8 @@ final class SourceStore: ObservableObject {
     func load() {
         let manager = FileManager.default
 
+        migrateLegacyFiles()
+
         if let decoded = SourceStore.decodeTolerant(storeURL) {
             sources = decoded
             return
@@ -48,6 +72,14 @@ final class SourceStore: ObservableObject {
             sources = decoded
             lastError = "书源主文件读取失败，已用备份恢复（\(decoded.count) 条）"
             save()
+            return
+        }
+
+        // 再试「被书架误收走」的那份（v1.8.2 之前的 bug 会把书源文件改名搬进 Books/）
+        if let recovered = recoverFromBooksFolder() {
+            sources = recovered
+            save()
+            lastError = "已从书架里被误收的文件恢复 \(recovered.count) 条书源"
             return
         }
 
@@ -63,9 +95,78 @@ final class SourceStore: ObservableObject {
         save()
     }
 
+    /// 把老位置（Documents 根目录）的文件搬进 Sources/ 子目录
+    private func migrateLegacyFiles() {
+        let fm = FileManager.default
+        let pairs: [(URL, URL)] = [(legacyStoreURL, storeURL), (legacyBackupURL, backupURL)]
+        for (old, new) in pairs {
+            guard fm.fileExists(atPath: old.path) else { continue }
+            if fm.fileExists(atPath: new.path) {
+                // 新位置已有内容，老文件改名留档，绝不直接删（可能是用户唯一的备份）
+                let archived = sourcesDir.appendingPathComponent(
+                    new.lastPathComponent.replacingOccurrences(of: ".json", with: ".legacy.json")
+                )
+                try? fm.removeItem(at: archived)
+                try? fm.moveItem(at: old, to: archived)
+                continue
+            }
+            if (try? fm.moveItem(at: old, to: new)) == nil {
+                if let data = try? Data(contentsOf: old) {
+                    try? data.write(to: new, options: .atomic)
+                    try? fm.removeItem(at: old)
+                }
+            }
+        }
+    }
+
+    /// 从 Books 目录里找回被误当成书的书源文件
+    private func recoverFromBooksFolder() -> [BookSource]? {
+        let fm = FileManager.default
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let booksDir = docs.appendingPathComponent("Books")
+        guard let names = try? fm.contentsOfDirectory(atPath: booksDir.path) else { return nil }
+
+        for name in names {
+            let lower = name.lowercased()
+            // 只碰「看起来是书源」的文件：sources.json / sources.txt / sources_1.txt 之类
+            guard lower.hasPrefix("sources") else { continue }
+            guard lower.hasSuffix(".json") || lower.hasSuffix(".txt") else { continue }
+
+            let url = booksDir.appendingPathComponent(name)
+            guard let data = try? Data(contentsOf: url), data.isEmpty == false else { continue }
+
+            if let decoded = SourceStore.decodeTolerant(data: data), decoded.isEmpty == false {
+                moveBack(url: url, fm: fm)
+                return decoded
+            }
+
+            if let text = String(data: data, encoding: .utf8),
+               let converted = try? LegadoBridge.convert(text),
+               converted.sources.isEmpty == false {
+                moveBack(url: url, fm: fm)
+                return converted.sources
+            }
+        }
+        return nil
+    }
+
+    private func moveBack(url: URL, fm: FileManager) {
+        let target = sourcesDir.appendingPathComponent("sources.recovered.json")
+        try? fm.removeItem(at: target)
+        if (try? fm.moveItem(at: url, to: target)) == nil, let data = try? Data(contentsOf: url) {
+            try? data.write(to: target, options: .atomic)
+            try? fm.removeItem(at: url)
+        }
+    }
+
     /// 宽容解码：整份失败就逐条解，坏的那条跳过，别牵连其他书源
     nonisolated static func decodeTolerant(_ url: URL) -> [BookSource]? {
-        guard let data = try? Data(contentsOf: url), data.isEmpty == false else { return nil }
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return decodeTolerant(data: data)
+    }
+
+    nonisolated static func decodeTolerant(data: Data) -> [BookSource]? {
+        guard data.isEmpty == false else { return nil }
 
         if let list = try? JSONDecoder().decode([BookSource].self, from: data) {
             return list
@@ -213,7 +314,22 @@ final class SourceStore: ObservableObject {
         guard let text = String(data: data, encoding: .utf8) else {
             return ImportReport(title: "读不出来", lines: ["文件不是 UTF-8 文本"])
         }
+
+        // 选择器 asCopy 会把副本落进 App 沙盒，读完就删，
+        // 否则这份 JSON 会被书架的「松散文件扫描」当成一本书收进去
+        SourceStore.removeSandboxCopy(of: url)
+
         return await importPayload(text)
+    }
+
+    /// 只删落在 Inbox / tmp 里的选择器副本，用户原文件绝不碰
+    nonisolated static func removeSandboxCopy(of url: URL) {
+        let fm = FileManager.default
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0].path
+        let inbox = docs + "/Inbox"
+        let tmp = fm.temporaryDirectory.path
+        guard url.path.hasPrefix(inbox) || url.path.hasPrefix(tmp) else { return }
+        try? fm.removeItem(at: url)
     }
 
     @discardableResult

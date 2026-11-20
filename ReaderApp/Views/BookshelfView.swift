@@ -201,12 +201,13 @@ struct BookshelfView: View {
             var log: [ImportLogItem] = []
 
             for url in urls {
+                // 先取名字 / 大小 / 格式：导入成功后这份副本会被清掉
+                let name = url.lastPathComponent
+                let size = BookshelfView.fileSize(of: url)
+                let detected = BookFormat.detect(for: url)?.rawValue ?? "认不出格式"
+
                 let error = await shelf.importBook(from: url)
-                var item = ImportLogItem(
-                    name: url.lastPathComponent,
-                    size: BookshelfView.fileSize(of: url),
-                    format: BookFormat.detect(for: url)?.rawValue ?? "认不出格式"
-                )
+                var item = ImportLogItem(name: name, size: size, format: detected)
                 item.error = error
                 log.append(item)
                 importDone += 1

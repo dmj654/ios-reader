@@ -87,6 +87,7 @@ final class BookshelfViewModel: ObservableObject {
                 let src = dir.appendingPathComponent(name)
                 guard isRegularFile(src) else { continue }
                 guard let format = BookFormat.detect(for: src) else { continue }
+                if format == .txt, BookshelfViewModel.looksLikeStructuredData(src) { continue }
 
                 let dest = uniqueDestination(preferredName: BookshelfViewModel.normalizedName(name, format: format))
                 moveOrCopy(from: src, to: dest)
@@ -118,13 +119,20 @@ final class BookshelfViewModel: ObservableObject {
         let onDisk = (try? fm.contentsOfDirectory(atPath: booksDir.path)) ?? []
         let existing = Set(onDisk)
 
-        books.removeAll { !existing.contains($0.fileName) }
+        // 已经登记过、但其实是「被误收进来的书源 / JSON」的，从书架里摘掉（文件保留，让书源去回收）
+        books.removeAll { book in
+            guard existing.contains(book.fileName) else { return true }
+            guard book.format == .txt else { return false }
+            return BookshelfViewModel.looksLikeStructuredData(booksDir.appendingPathComponent(book.fileName))
+        }
 
         let known = Set(books.map { $0.fileName })
         var queued: [(String, BookFormat)] = []
         for name in onDisk where known.contains(name) == false {
             let url = booksDir.appendingPathComponent(name)
             guard isRegularFile(url), let format = BookFormat.detect(for: url) else { continue }
+            // JSON 之类的结构化数据不是书，别收进书架
+            if format == .txt, BookshelfViewModel.looksLikeStructuredData(url) { continue }
             // 先用文件名占位，元数据（书名/作者/总页数）后台再补，避免卡住界面
             books.append(Book(title: url.deletingPathExtension().lastPathComponent,
                               author: "未知",
@@ -138,6 +146,14 @@ final class BookshelfViewModel: ObservableObject {
             requestMetadata(fileName: item.0, format: item.1)
         }
     }
+
+    /// 内容以 `{` 或 `[` 开头的，基本是 JSON / 配置，不是正文
+    nonisolated static func looksLikeStructuredData(_ url: URL) -> Bool {
+        guard let head = head(of: url, limit: 8192) else { return false }
+        guard let first = head.first(where: { $0 > 0x20 }) else { return false }
+        return first == 0x7B /* { */ || first == 0x5B /* [ */
+    }
+
 
     /// 把没有扩展名 / 扩展名不对的文件补成正确的扩展名
     nonisolated static func normalizedName(_ name: String, format: BookFormat) -> String {
@@ -241,7 +257,19 @@ final class BookshelfViewModel: ObservableObject {
 
         // 微信「拷贝到」进 Inbox 的原件删掉，避免重复登记
         if source.path.contains("/Inbox/") { try? fm.removeItem(at: source) }
+        // 文件选择器 asCopy 落在沙盒里的副本也删掉，免得下次扫描又扫到一份
+        BookshelfViewModel.removeSandboxCopy(of: source)
         return ImportOutcome(fileName: name, format: format)
+    }
+
+    /// 只删「选择器拷进来的副本」（Inbox / tmp），用户自己的文件一律不碰
+    nonisolated static func removeSandboxCopy(of url: URL) {
+        let fm = FileManager.default
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0].path
+        let inbox = docs + "/Inbox"
+        let tmp = fm.temporaryDirectory.path
+        guard url.path.hasPrefix(inbox) || url.path.hasPrefix(tmp) else { return }
+        try? fm.removeItem(at: url)
     }
 
     /// 已在后台跑元数据的文件，避免重复请求
