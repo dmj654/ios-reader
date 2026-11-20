@@ -71,6 +71,9 @@ struct TextReaderView: View {
     private let hPad: CGFloat = 22
     private let vPad: CGFloat = 16
 
+    /// 阅读统计（单例，主线程访问）
+    private var stats: ReadingStatsStore { ReadingStatsStore.shared }
+
     var body: some View {
         ZStack {
             settings.theme.background.ignoresSafeArea()
@@ -128,7 +131,10 @@ struct TextReaderView: View {
         .task { await load() }
         .onChange(of: settings.fontSize) { _, _ in repaginate(keepingOffset: true) }
         .onChange(of: settings.lineSpacing) { _, _ in repaginate(keepingOffset: true) }
-        .onDisappear { saveProgress() }
+        .onDisappear {
+            saveProgress()
+            stats.endSession()
+        }
         .sheet(isPresented: $showPanels) { panelsSheet }
         .sheet(isPresented: $showSettings) { SettingsView(settings: settings) }
     }
@@ -204,6 +210,7 @@ struct TextReaderView: View {
     }
 
     private func handleTap(at point: CGPoint, in size: CGSize) {
+        stats.noteActivity()
         if showMenu {
             withAnimation { showMenu = false }
             return
@@ -522,6 +529,7 @@ struct TextReaderView: View {
     private func jump(toOffset offset: Int) {
         guard pages.isEmpty == false else { return }
         pageIndex = firstPageIndex(forOffset: offset)
+        stats.noteActivity()
         saveProgress()
     }
 
@@ -529,6 +537,7 @@ struct TextReaderView: View {
         let target = pageIndex + delta
         guard pages.isEmpty == false, target >= 0, target < pages.count else { return }
         pageIndex = target
+        stats.noteActivity(pages: 1)
         saveProgress()
     }
 
@@ -676,6 +685,7 @@ struct TextReaderView: View {
 
         isLoading = false
         repaginate(keepingOffset: false)
+        stats.beginSession(bookID: book.id)
     }
 
     private func repaginate(keepingOffset: Bool) {

@@ -19,6 +19,9 @@ struct PdfReaderView: View {
     @State private var pageIndex: Int = 0
     @State private var showMenu = false
 
+    /// 阅读统计（单例，主线程访问）
+    private var stats: ReadingStatsStore { ReadingStatsStore.shared }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -60,7 +63,11 @@ struct PdfReaderView: View {
                     .transition(.opacity)
             }
         }
-        .onDisappear { saveProgress() }
+        .onAppear { stats.beginSession(bookID: book.id) }
+        .onDisappear {
+            saveProgress()
+            stats.endSession()
+        }
     }
 
     private func menuOverlay(total: Int) -> some View {
@@ -122,6 +129,7 @@ struct PdfReaderView: View {
         let target = pageIndex + delta
         guard target >= 0, target < document.pageCount else { return }
         pageIndex = target
+        stats.noteActivity(pages: 1)
         saveProgress()
     }
 

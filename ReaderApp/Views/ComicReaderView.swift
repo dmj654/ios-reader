@@ -37,6 +37,9 @@ struct ComicReaderView: View {
     @State private var outgoingImage: UIImage?
     @State private var outgoingOpacity: Double = 1
 
+    /// 阅读统计（单例，主线程访问）
+    private var stats: ReadingStatsStore { ReadingStatsStore.shared }
+
     var body: some View {
         ZStack {
             settings.comicBackground.color.ignoresSafeArea()
@@ -67,6 +70,7 @@ struct ComicReaderView: View {
             UIApplication.shared.isIdleTimerDisabled = false
             hideItem?.cancel()
             saveProgress()
+            stats.endSession()
         }
         .onChange(of: settings.comicAutoTrim) { _, _ in
             if settings.comicMode == .paged { Task { await showPage(pageIndex) } }
@@ -148,6 +152,7 @@ struct ComicReaderView: View {
                         .onAppear {
                             if index != visibleIndex {
                                 visibleIndex = index
+                                stats.noteActivity(pages: 1)
                                 shelf.updateProgress(bookID: book.id, location: index, totalUnits: pagePaths.count)
                             }
                         }
@@ -379,6 +384,7 @@ struct ComicReaderView: View {
 
         await showPage(start)
         shelf.updateProgress(bookID: book.id, location: start, totalUnits: paths.count)
+        stats.beginSession(bookID: book.id)
 
         if settings.comicChrome == .always {
             withAnimation { chromeVisible = true }
@@ -475,11 +481,13 @@ struct ComicReaderView: View {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         pageIndex = target
         zoomed = false
+        stats.noteActivity(pages: 1)
         saveProgress()
         Task { await showPage(target) }
     }
 
     private func handleTap(ratio: CGFloat) {
+        stats.noteActivity()
         if zoomed { return }
 
         // 竖向滚动模式下点按只控制工具栏

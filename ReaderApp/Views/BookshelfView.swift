@@ -50,6 +50,7 @@ struct BookshelfView: View {
     @State private var showSources = false
     @State private var selectedBook: Book?
     @State private var showSettings = false
+    @State private var showStats = false
     @State private var toast: String?
 
     @State private var query = ""
@@ -181,6 +182,9 @@ struct BookshelfView: View {
             .sheet(isPresented: $showSettings) {
                 SettingsView(settings: settings)
             }
+            .sheet(isPresented: $showStats) {
+                StatsView(store: ReadingStatsStore.shared, books: shelf.books)
+            }
             .sheet(isPresented: $showSources) {
                 SourceSearchView(shelf: shelf, store: sources) { book in
                     showSources = false
@@ -215,6 +219,8 @@ struct BookshelfView: View {
     private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                StatsBanner(store: ReadingStatsStore.shared) { showStats = true }
+
                 filterBar
 
                 if visibleBooks.isEmpty {
@@ -503,5 +509,88 @@ struct CoverCell: View {
         if let image {
             cover = image
         }
+    }
+}
+
+// MARK: - 书架顶部统计条
+
+struct StatsBanner: View {
+    @ObservedObject var store: ReadingStatsStore
+    let action: () -> Void
+
+    @AppStorage("stats.dailyGoalMinutes") private var goalMinutes: Int = 30
+
+    private var summary: StatsSummary { store.summary(goalMinutes: goalMinutes) }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                ring
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(headline)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    Text(subline)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                Color(uiColor: .secondarySystemBackground),
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var ring: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.primary.opacity(0.09), lineWidth: 4)
+
+            Circle()
+                .trim(from: 0, to: max(0.001, summary.goalFraction))
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+
+            Image(systemName: "book.fill")
+                .font(.system(size: 9))
+                .foregroundStyle(Color.accentColor.opacity(0.85))
+        }
+        .frame(width: 34, height: 34)
+    }
+
+    private var headline: String {
+        if summary.totalSeconds == 0 {
+            return "还没有阅读记录"
+        }
+        if summary.todaySeconds == 0 {
+            return "今天还没开始读"
+        }
+        return "今天读了 \(StatsFormat.duration(summary.todaySeconds))"
+    }
+
+    private var subline: String {
+        if summary.totalSeconds == 0 {
+            return "读几分钟，这里会开始记录"
+        }
+        var parts: [String] = []
+        if summary.streak > 1 {
+            parts.append("连续 \(summary.streak) 天")
+        }
+        parts.append("目标 \(goalMinutes) 分钟 · 完成 \(summary.goalPercent)%")
+        return parts.joined(separator: " · ")
     }
 }

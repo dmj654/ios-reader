@@ -10,6 +10,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var settings: ReadingSettings
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("stats.dailyGoalMinutes") private var goalMinutes: Int = 30
 
     var body: some View {
         NavigationStack {
@@ -97,6 +98,19 @@ struct SettingsView: View {
                     Text("漫画")
                 } footer: {
                     Text("阅读方式、适配、方向、工具栏、点按区域、裁白边、压暗、预读等都可以单独调整。")
+                }
+
+                Section {
+                    Picker("每日阅读目标", selection: $goalMinutes) {
+                        ForEach([10, 15, 20, 30, 45, 60, 90], id: \.self) { minutes in
+                            Text("\(minutes) 分钟").tag(minutes)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                } header: {
+                    Text("阅读统计")
+                } footer: {
+                    Text("书架顶部显示今天读了多久、连续几天，点进去看热力图和排行。全部只存本机。")
                 }
             }
             .navigationTitle("阅读设置")
