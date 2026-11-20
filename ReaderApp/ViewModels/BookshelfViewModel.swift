@@ -366,6 +366,30 @@ final class BookshelfViewModel: ObservableObject {
         if total > 0 { books[index].totalUnits = total }
         save()
     }
+
+    /// 下载完成后挂上来源信息，供更新检测使用
+    func attachProvenance(bookID: UUID, sourceID: UUID, sourceLink: String, sourceName: String,
+                          chapterCount: Int, latestChapter: String) {
+        guard let index = books.firstIndex(where: { $0.id == bookID }) else { return }
+        books[index].sourceID = sourceID
+        books[index].sourceLink = sourceLink
+        books[index].sourceName = sourceName
+        books[index].downloadedChapterCount = chapterCount
+        books[index].latestChapter = latestChapter
+        books[index].hasUpdate = false
+        save()
+    }
+
+    /// 更新检测回写：是否有新章节、远端章节数和最新章名
+    func setUpdateState(bookID: UUID, hasUpdate: Bool, checkedAt: Date,
+                        latestChapter: String?, chapterCount: Int?) {
+        guard let index = books.firstIndex(where: { $0.id == bookID }) else { return }
+        books[index].hasUpdate = hasUpdate
+        books[index].checkedAt = checkedAt
+        if let latestChapter { books[index].latestChapter = latestChapter }
+        if let chapterCount { books[index].downloadedChapterCount = chapterCount }
+        save()
+    }
 }
 
 // MARK: - 书签

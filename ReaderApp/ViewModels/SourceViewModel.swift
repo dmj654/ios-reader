@@ -301,6 +301,16 @@ final class SourceViewModel: ObservableObject {
 
         shelf.scan()
         let saved = shelf.books.first { $0.fileName == dest.lastPathComponent }
+        if let saved {
+            shelf.attachProvenance(
+                bookID: saved.id,
+                sourceID: source.id,
+                sourceLink: item.link,
+                sourceName: source.name,
+                chapterCount: list.count,
+                latestChapter: list.last?.name ?? ""
+            )
+        }
         finishedMessage = failedCount > 0
             ? "已保存到书架（\(list.count - failedCount)/\(list.count) 章，\(failedCount) 章失败）"
             : "已保存到书架：\(list.count) 章"
@@ -379,6 +389,16 @@ final class SourceViewModel: ObservableObject {
 
         shelf.scan()
         let saved = shelf.books.first { $0.fileName == dest.lastPathComponent }
+        if let saved {
+            shelf.attachProvenance(
+                bookID: saved.id,
+                sourceID: source.id,
+                sourceLink: item.link,
+                sourceName: source.name,
+                chapterCount: list.count,
+                latestChapter: list.last?.name ?? ""
+            )
+        }
         finishedMessage = failedCount > 0
             ? "已保存到书架：\(entries.count) 页（\(failedCount) 张失败）"
             : "已保存到书架：\(entries.count) 页"

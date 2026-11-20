@@ -45,6 +45,7 @@ struct BookshelfView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var settings: ReadingSettings
     @ObservedObject var sources: SourceStore
+    @ObservedObject private var checker = UpdateChecker.shared
 
     @State private var showImportLog = false
     @State private var importLog: [ImportLogItem] = []
@@ -110,6 +111,16 @@ struct BookshelfView: View {
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
+                        Task { await checker.check(shelf: shelf, store: sources) }
+                    } label: {
+                        if checker.checking {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                    }
+                    .disabled(checker.checking)
+                    Button {
                         showSources = true
                     } label: {
                         Image(systemName: "globe")
@@ -162,6 +173,9 @@ struct BookshelfView: View {
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { shelf.scan() }
+            }
+            .onChange(of: checker.lastMessage) { _, message in
+                if let message { show(message) }
             }
             .onAppear { shelf.scan() }
         }
@@ -441,6 +455,17 @@ struct CoverCell: View {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .stroke(Color.primary.opacity(0.07), lineWidth: 0.5)
             )
+            .overlay(alignment: .topTrailing) {
+                if book.hasUpdate {
+                    Text("更新")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.red, in: Capsule())
+                        .padding(6)
+                }
+            }
 
             Text(book.title)
                 .font(.system(size: 12, weight: .medium))

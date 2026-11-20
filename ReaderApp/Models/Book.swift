@@ -113,6 +113,18 @@ struct Book: Identifiable, Codable, Hashable {
     var addedAt: Date = Date()
     var lastReadAt: Date?
 
+    // MARK: - 来源与更新检测（从书源下载的书才有，本地导入为 nil）
+    var sourceID: UUID?
+    var sourceLink: String?
+    var sourceName: String?
+    /// 下载时的章节数
+    var downloadedChapterCount: Int?
+    /// 下载时的最新章节名
+    var latestChapter: String?
+    var checkedAt: Date?
+    /// 检测到有新章节
+    var hasUpdate: Bool = false
+
     var absoluteURL: URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return docs.appendingPathComponent("Books").appendingPathComponent(fileName)
@@ -125,4 +137,29 @@ struct Book: Identifiable, Codable, Hashable {
     }
 
     var isRead: Bool { totalUnits > 0 && location >= totalUnits - 1 }
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, author, format, fileName, location, totalUnits, addedAt, lastReadAt
+        case sourceID, sourceLink, sourceName, downloadedChapterCount, latestChapter, checkedAt, hasUpdate
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? "未命名"
+        author = try c.decodeIfPresent(String.self, forKey: .author) ?? "未知"
+        format = try c.decodeIfPresent(BookFormat.self, forKey: .format) ?? .txt
+        fileName = try c.decodeIfPresent(String.self, forKey: .fileName) ?? ""
+        location = try c.decodeIfPresent(Int.self, forKey: .location) ?? 0
+        totalUnits = try c.decodeIfPresent(Int.self, forKey: .totalUnits) ?? 0
+        addedAt = try c.decodeIfPresent(Date.self, forKey: .addedAt) ?? Date()
+        lastReadAt = try c.decodeIfPresent(Date.self, forKey: .lastReadAt)
+        sourceID = try c.decodeIfPresent(UUID.self, forKey: .sourceID)
+        sourceLink = try c.decodeIfPresent(String.self, forKey: .sourceLink)
+        sourceName = try c.decodeIfPresent(String.self, forKey: .sourceName)
+        downloadedChapterCount = try c.decodeIfPresent(Int.self, forKey: .downloadedChapterCount)
+        latestChapter = try c.decodeIfPresent(String.self, forKey: .latestChapter)
+        checkedAt = try c.decodeIfPresent(Date.self, forKey: .checkedAt)
+        hasUpdate = try c.decodeIfPresent(Bool.self, forKey: .hasUpdate) ?? false
+    }
 }
