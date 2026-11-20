@@ -393,36 +393,40 @@ struct SourceSearchView: View {
                     Button {
                         selected = item
                     } label: {
-                        HStack(spacing: 12) {
+                        HStack(spacing: 14) {
                             cover(for: item)
 
-                            VStack(alignment: .leading, spacing: 3) {
+                            VStack(alignment: .leading, spacing: 5) {
                                 Text(item.name)
-                                    .font(.system(size: 15, weight: .medium))
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundStyle(.primary)
                                     .lineLimit(1)
                                 Text(item.author.isEmpty ? "未知作者" : item.author)
                                     .font(.system(size: 12))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
-                                HStack(spacing: 6) {
+                                HStack(spacing: 5) {
                                     Text(item.sourceName)
-                                    Text("·")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.secondary.opacity(0.12), in: Capsule())
                                     Text(item.type.title)
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(.tertiary)
                                 }
-                                .font(.system(size: 10))
-                                .foregroundStyle(.tertiary)
                             }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.tertiary)
+                            Spacer(minLength: 0)
                         }
-                        .padding(.vertical, 2)
+                        .padding(.vertical, 6)
                     }
                     .buttonStyle(.plain)
                 }
             } header: {
                 Text("共 \(vm.results.count) 条结果")
+            } footer: {
+                Text("点进去可以直接在线阅读，不用先下载。")
             }
         }
         .listStyle(.plain)
@@ -447,7 +451,7 @@ struct SourceSearchView: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .frame(width: 42, height: 58)
+        .frame(width: 56, height: 76)
         .overlay(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
@@ -466,6 +470,8 @@ struct SourceBookView: View {
     @StateObject private var vm = SourceViewModel()
     @State private var limitIndex = 0
     @State private var alertText: String?
+    @State private var reading = false
+    @State private var startIndex = 0
 
     private var limitOptions: [(title: String, value: Int)] {
         switch item.type {
@@ -476,38 +482,79 @@ struct SourceBookView: View {
         }
     }
 
+    /// 上次读到第几章
+    private var savedIndex: Int {
+        let value = UserDefaults.standard.integer(forKey: "readpos-\(item.link)")
+        guard vm.chapters.isEmpty == false else { return 0 }
+        return max(0, min(value, vm.chapters.count - 1))
+    }
+
     var body: some View {
         List {
             Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(item.name)
-                        .font(.system(size: 20, weight: .semibold))
-                    Text(item.author.isEmpty ? "未知作者" : item.author)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    Text("\(source.name) · \(item.type.title)")
-                        .font(.caption)
+                HStack(alignment: .top, spacing: 14) {
+                    cover(size: CGSize(width: 92, height: 126))
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(item.name)
+                            .font(.system(size: 19, weight: .semibold))
+                            .lineLimit(2)
+                        Text(item.author.isEmpty ? "未知作者" : item.author)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        HStack(spacing: 6) {
+                            Text(source.name)
+                                .lineLimit(1)
+                            Text("·")
+                            Text(item.type.title)
+                            if vm.chaptersLoading == false && vm.chapters.isEmpty == false {
+                                Text("·")
+                                Text("\(vm.chapters.count) 章")
+                            }
+                        }
+                        .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
                 }
                 .padding(.vertical, 4)
             }
 
             Section {
+                Button {
+                    startIndex = savedIndex
+                    reading = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "book")
+                        Text(savedIndex > 0 ? "继续阅读 · 第 \(savedIndex + 1) 章" : "开始阅读")
+                            .fontWeight(.medium)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .disabled(vm.chapters.isEmpty)
+
                 if vm.chaptersLoading {
                     HStack(spacing: 10) {
                         ProgressView()
                         Text("正在取目录…").font(.footnote).foregroundStyle(.secondary)
                     }
                 } else if let error = vm.chapterError {
-                    Text(error)
+                    Text("目录没取到：\(error)")
                         .font(.caption)
                         .foregroundStyle(.red)
-                } else {
-                    Text("共 \(vm.chapters.count) 章")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
+            } footer: {
+                Text("点章节或上面的按钮直接在线看，正文会预载后两章，翻章不用等。")
+            }
 
+            Section {
                 Picker("下载范围", selection: $limitIndex) {
                     ForEach(limitOptions.indices, id: \.self) { index in
                         Text(limitOptions[index].title).tag(index)
@@ -536,21 +583,28 @@ struct SourceBookView: View {
                     .disabled(vm.chapters.isEmpty)
                 }
             } header: {
-                Text("下载")
+                Text("下载到本地（不下载也能直接在线看）")
             }
 
             if vm.chapters.isEmpty == false {
                 Section {
                     ForEach(vm.chapters.prefix(300).indices, id: \.self) { index in
-                        HStack(spacing: 8) {
-                            Text("\(index + 1)")
-                                .font(.system(size: 11))
-                                .monospacedDigit()
-                                .foregroundStyle(.tertiary)
-                                .frame(width: 30, alignment: .trailing)
-                            Text(vm.chapters[index].name)
-                                .font(.system(size: 13))
-                                .lineLimit(1)
+                        Button {
+                            startIndex = index
+                            reading = true
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text("\(index + 1)")
+                                    .font(.system(size: 11))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.tertiary)
+                                    .frame(width: 30, alignment: .trailing)
+                                Text(vm.chapters[index].name)
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
                         }
                     }
                     if vm.chapters.count > 300 {
@@ -567,6 +621,14 @@ struct SourceBookView: View {
         .task {
             if vm.chapters.isEmpty { await vm.loadChapters(source: source, item: item) }
         }
+        .fullScreenCover(isPresented: $reading) {
+            SourceReaderView(
+                source: source,
+                item: item,
+                chapters: vm.chapters,
+                startIndex: startIndex
+            )
+        }
         .alert("提示", isPresented: Binding(
             get: { alertText != nil },
             set: { if $0 == false { alertText = nil } }
@@ -575,6 +637,32 @@ struct SourceBookView: View {
         } message: {
             Text(alertText ?? "")
         }
+    }
+
+    private func cover(size: CGSize) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemBackground))
+
+            if item.cover.isEmpty == false, let url = URL(string: item.cover) {
+                AsyncImage(url: url) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    Image(systemName: "book.closed")
+                        .foregroundStyle(.tertiary)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else {
+                Image(systemName: item.type == .comic ? "photo.on.rectangle" : "book.closed")
+                    .font(.system(size: 24))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
+        )
     }
 
     private func startDownload() async {

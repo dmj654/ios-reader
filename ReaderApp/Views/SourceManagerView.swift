@@ -31,6 +31,9 @@ struct SourceManagerView: View {
     @State private var groupFilter: String?
     @State private var selecting = false
     @State private var selectedIDs = Set<UUID>()
+    /// 一次只铺这么多行，一千条也不至于一进页面就卡
+    @State private var pageSize = 120
+    @State private var groupsCache: [String] = []
 
     enum SourceKindFilter: String, CaseIterable, Identifiable {
         case all, novel, comic, enabled, disabled, ready, broken
@@ -62,7 +65,7 @@ struct SourceManagerView: View {
         }
     }
 
-    /// 当前筛选 + 排序后的源
+    /// 当前筛选 + 排序后的源（一千条时尽量用便宜的字符串比较，别用本地化比较）
     private var visibleSources: [BookSource] {
         var list = store.sources
 
@@ -96,21 +99,26 @@ struct SourceManagerView: View {
                 let l = lhs.lastSuccessAt ?? Date.distantPast
                 let r = rhs.lastSuccessAt ?? Date.distantPast
                 if l != r { return l > r }
-                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+                return lhs.name < rhs.name
             }
         case .successCount:
             list.sort { $0.successCount > $1.successCount }
         case .name:
-            list.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            list.sort { $0.name < $1.name }
         case .recentUsed:
             list.sort { ($0.lastUsedAt ?? Date.distantPast) > ($1.lastUsedAt ?? Date.distantPast) }
         case .failFirst:
             list.sort { lhs, rhs in
                 if lhs.failCount != rhs.failCount { return lhs.failCount > rhs.failCount }
-                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+                return lhs.name < rhs.name
             }
         }
         return list
+    }
+
+    /// 首屏只铺 pageSize 条
+    private var pagedSources: [BookSource] {
+        Array(visibleSources.prefix(pageSize))
     }
 
     var body: some View {
@@ -141,11 +149,21 @@ struct SourceManagerView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(visibleSources) { source in
+                    ForEach(pagedSources) { source in
                         row(source)
                     }
+
+                    if visibleSources.count > pagedSources.count {
+                        Button {
+                            pageSize += 150
+                        } label: {
+                            Label("再显示 150 条（还剩 \(visibleSources.count - pagedSources.count) 条）", systemImage: "chevron.down")
+                                .font(.footnote)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                        }
+                    }
                 } header: {
-                    Text("书源 · 共 \(store.sources.count) 条 / 显示 \(visibleSources.count) 条")
+                    Text("书源 · 共 \(store.sources.count) 条 / 显示 \(pagedSources.count) 条")
                 } footer: {
                     Text("小说源只参与小说搜索，下成 TXT；漫画源只参与漫画搜索，下成 CBZ。搜索优先用「以前搜成功过」的源。")
                 }
@@ -244,6 +262,16 @@ struct SourceManagerView: View {
             .onDisappear {
                 store.flushPendingSave()
             }
+            .onAppear {
+                groupsCache = store.groups
+            }
+            .onChange(of: store.sources) { _, _ in
+                groupsCache = store.groups
+            }
+            .onChange(of: kind) { _, _ in pageSize = 120 }
+            .onChange(of: sortMode) { _, _ in pageSize = 120 }
+            .onChange(of: groupFilter) { _, _ in pageSize = 120 }
+            .onChange(of: query) { _, _ in pageSize = 120 }
             .sheet(isPresented: $showCheck) {
                 SourceCheckView(store: store)
             }
@@ -312,7 +340,7 @@ struct SourceManagerView: View {
             HStack(spacing: 8) {
                 Menu {
                     Button("全部分组") { groupFilter = nil }
-                    ForEach(store.groups, id: \.self) { group in
+                    ForEach(groupsCache, id: \.self) { group in
                         Button(group) { groupFilter = group }
                     }
                 } label: {
@@ -355,8 +383,8 @@ struct SourceManagerView: View {
 
                 Spacer(minLength: 0)
 
-                if store.groups.isEmpty == false {
-                    Text("\(store.groups.count) 组")
+                if groupsCache.isEmpty == false {
+                    Text("\(groupsCache.count) 组")
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
                 }
