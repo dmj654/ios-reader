@@ -104,7 +104,8 @@ enum RuleParser {
                     current = next
 
                 case .index(let n):
-                    current = (n >= 0 && n < current.count) ? [current[n]] : []
+                    let idx = n == -1 ? current.count - 1 : n
+                    current = (idx >= 0 && idx < current.count) ? [current[idx]] : []
 
                 default:
                     continue
@@ -146,6 +147,7 @@ enum RuleParser {
             output = output.map { applyReplace($0, pattern: pattern, template: template) }
         }
 
+        output = output.map { interpolate($0, in: node) }
         return output.filter { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false }
     }
 
@@ -158,6 +160,13 @@ enum RuleParser {
     // MARK: - 求值
 
     private static func evaluate(_ part: Part, in node: RuleNode, base: String) -> [String] {
+        // 纯模板规则：第{{$.order}}章 {{$.name}} / {$.chapterid} | {$.chapter} / https://…/{{$.id}}，直接拿当前 JSON 节点插值
+        if part.path.contains("{{") || part.path.contains("{$.") {
+            if case .json(let any) = node {
+                return [interpolate(part.path, root: any)]
+            }
+        }
+
         var current: [Any] = []
 
         switch part.kind {
@@ -214,8 +223,9 @@ enum RuleParser {
                 return current.compactMap { hrefValue(of: $0, attribute: name, base: base) }
 
             case .index(let n):
-                guard n >= 0, n < current.count else { return [] }
-                current = [current[n]]
+                let idx = n == -1 ? current.count - 1 : n
+                guard idx >= 0, idx < current.count else { return [] }
+                current = [current[idx]]
             }
         }
 
@@ -338,7 +348,7 @@ enum RuleParser {
         } else if body.hasPrefix("@xpath:") {
             body = String(body.dropFirst(7))
             kind = .xpath
-        } else if body.hasPrefix("@json:") {
+        } else if body.lowercased().hasPrefix("@json:") {
             body = String(body.dropFirst(6))
             kind = .json
         } else if body.hasPrefix("class.") {
@@ -366,6 +376,15 @@ enum RuleParser {
             kind = .xpath
             if body.hasPrefix("(/") {
                 body = String(body.dropFirst(1))
+            }
+        }
+
+        // 省略 $. 前缀的 JSON 路径：带 [*]/[0] 下标，或 data./Data./result. 开头的点号路径
+        if kind == .css {
+            let hasIndex = body.range(of: "\\[\\d+\\]|\\[\\*\\]", options: .regularExpression) != nil
+            let bareRoot = body.range(of: "^(data|Data|result|Result)\\.[A-Za-z0-9_]", options: .regularExpression) != nil
+            if hasIndex || (bareRoot && !body.contains(" ") && !body.contains("#") && !body.contains("@")) {
+                kind = .json
             }
         }
 
@@ -689,7 +708,9 @@ enum RuleParser {
             var next: [Any] = []
             for item in current {
                 if isIndex {
-                    if let index = Int(token), index >= 0, let array = item as? [Any], index < array.count {
+                    if token == "*" {
+                        if let array = item as? [Any] { next.append(contentsOf: array) }
+                    } else if let index = Int(token), index >= 0, let array = item as? [Any], index < array.count {
                         next.append(array[index])
                     }
                 } else if let dict = item as? [String: Any], let value = dict[token] {
@@ -706,6 +727,29 @@ enum RuleParser {
         if let text = value as? String { return text }
         if let number = value as? NSNumber { return number.stringValue }
         return nil
+    }
+
+    /// 把结果里残留的 {{$.field}} 模板，按当前 JSON 节点填上
+    private static func interpolate(_ text: String, in node: RuleNode) -> String {
+        guard text.contains("{{") else { return text }
+        guard case .json(let any) = node else { return text }
+        return interpolate(text, root: any)
+    }
+
+    private static func interpolate(_ text: String, root: Any) -> String {
+        guard text.contains("{{") else { return text }
+        guard let regex = try? NSRegularExpression(pattern: "\\{\\{?\\s*\\$\\.([A-Za-z0-9_.\\[\\]]*)\\s*\\}?\\}") else { return text }
+        var out = text
+        let ns = out as NSString
+        let matches = regex.matches(in: out, range: NSRange(location: 0, length: ns.length))
+        for match in matches.reversed() {
+            let path = ns.substring(with: match.range(at: 1))
+            let value = jsonValues(path: path, root: root).compactMap(jsonString).first ?? ""
+            if let range = Range(match.range, in: out) {
+                out.replaceSubrange(range, with: value)
+            }
+        }
+        return out
     }
 
     private static func plainString(of node: RuleNode) -> String? {
