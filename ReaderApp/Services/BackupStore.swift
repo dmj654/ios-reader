@@ -68,11 +68,11 @@ final class BackupStore: ObservableObject {
             entries.append((name, data))
         }
 
-        addFile("bookshelf.json", docsDir.appendingPathComponent("bookshelf.json"))
-        addFile("bookmarks.json", docsDir.appendingPathComponent("bookmarks.json"))
-        addFile("sources.json", docsDir.appendingPathComponent("Sources").appendingPathComponent("sources.json"))
-        addFile("purifiers.json", docsDir.appendingPathComponent("Purifiers.json"))
-        addFile("stats.json", appSupport.appendingPathComponent("ReadingStats").appendingPathComponent("stats.json"))
+        addFile("bookshelf.json", url: docsDir.appendingPathComponent("bookshelf.json"))
+        addFile("bookmarks.json", url: docsDir.appendingPathComponent("bookmarks.json"))
+        addFile("sources.json", url: docsDir.appendingPathComponent("Sources").appendingPathComponent("sources.json"))
+        addFile("purifiers.json", url: docsDir.appendingPathComponent("Purifiers.json"))
+        addFile("stats.json", url: appSupport.appendingPathComponent("ReadingStats").appendingPathComponent("stats.json"))
 
         // 设置与阅读位置快照（readpos- 是在线阅读进度，单独保留；同步时间戳不备份）
         let defaults = UserDefaults.standard
@@ -152,11 +152,11 @@ final class BackupStore: ObservableObject {
             try? data.write(to: target, options: .atomic)
         }
 
-        write("bookshelf.json", docsDir.appendingPathComponent("bookshelf.json"))
-        write("bookmarks.json", docsDir.appendingPathComponent("bookmarks.json"))
-        write("sources.json", docsDir.appendingPathComponent("Sources").appendingPathComponent("sources.json"))
-        write("purifiers.json", docsDir.appendingPathComponent("Purifiers.json"))
-        write("stats.json", appSupport.appendingPathComponent("ReadingStats").appendingPathComponent("stats.json"))
+        write("bookshelf.json", to: docsDir.appendingPathComponent("bookshelf.json"))
+        write("bookmarks.json", to: docsDir.appendingPathComponent("bookmarks.json"))
+        write("sources.json", to: docsDir.appendingPathComponent("Sources").appendingPathComponent("sources.json"))
+        write("purifiers.json", to: docsDir.appendingPathComponent("Purifiers.json"))
+        write("stats.json", to: appSupport.appendingPathComponent("ReadingStats").appendingPathComponent("stats.json"))
 
         // 字体文件
         for (path, data) in files where path.hasPrefix("fonts/") {

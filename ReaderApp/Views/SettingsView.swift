@@ -211,42 +211,7 @@ struct SettingsView: View {
                     Text("按规则删掉正文里的网址、广告、求票尾巴，也能改章节标题。规则改了立刻生效，不用重开书。")
                 }
 
-                Section {
-                    HStack(spacing: 8) {
-                        Image(systemName: backup.iCloudAvailable ? "icloud.fill" : "icloud.slash")
-                            .foregroundStyle(backup.iCloudAvailable ? .tint : .secondary)
-                        Text(backup.iCloudAvailable ? "iCloud 已连接" : "iCloud 不可用")
-                        Spacer()
-                        Text(backup.lastSyncedAt?.formatted(date: .abbreviated, time: .shortened) ?? "还没同步过")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Button {
-                        exportBackup()
-                    } label: {
-                        Label("导出备份文件", systemImage: "square.and.arrow.up")
-                    }
-
-                    Button {
-                        importBackup()
-                    } label: {
-                        Label("从备份恢复", systemImage: "arrow.down.circle")
-                    }
-
-                    if backup.iCloudAvailable {
-                        Button {
-                            backup.pushToICloud()
-                            backupMessage = "已同步到 iCloud。"
-                        } label: {
-                            Label("立即同步到 iCloud", systemImage: "icloud.and.arrow.up")
-                        }
-                    }
-                } header: {
-                    Text("备份与同步")
-                } footer: {
-                    Text("备份包含书架、阅读进度、书签、书源、净化规则、阅读统计、设置和字体；书籍本体不进备份，需通过「文件」App 另行拷贝。侧载签名下 iCloud 容器可能拿不到，这时用导出 / 导入备份文件即可。")
-                }
+                backupSection
 
                 if let sources {
                     Section {
@@ -330,6 +295,45 @@ struct SettingsView: View {
             } message: {
                 Text(backupMessage ?? "")
             }
+        }
+    }
+
+    private var backupSection: some View {
+        Section {
+            HStack(spacing: 8) {
+                Image(systemName: backup.iCloudAvailable ? "icloud.fill" : "icloud.slash")
+                    .foregroundStyle(backup.iCloudAvailable ? .tint : .secondary)
+                Text(backup.iCloudAvailable ? "iCloud 已连接" : "iCloud 不可用")
+                Spacer()
+                Text(backup.lastSyncedAt?.formatted(date: .abbreviated, time: .shortened) ?? "还没同步过")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button {
+                exportBackup()
+            } label: {
+                Label("导出备份文件", systemImage: "square.and.arrow.up")
+            }
+
+            Button {
+                importBackup()
+            } label: {
+                Label("从备份恢复", systemImage: "arrow.down.circle")
+            }
+
+            if backup.iCloudAvailable {
+                Button {
+                    backup.pushToICloud()
+                    backupMessage = "已同步到 iCloud。"
+                } label: {
+                    Label("立即同步到 iCloud", systemImage: "icloud.and.arrow.up")
+                }
+            }
+        } header: {
+            Text("备份与同步")
+        } footer: {
+            Text("备份包含书架、阅读进度、书签、书源、净化规则、阅读统计、设置和字体；书籍本体不进备份，需通过「文件」App 另行拷贝。侧载签名下 iCloud 容器可能拿不到，这时用导出 / 导入备份文件即可。")
         }
     }
 
