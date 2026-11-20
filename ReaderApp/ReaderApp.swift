@@ -13,7 +13,7 @@ struct ReaderApp: App {
 
     var body: some Scene {
         WindowGroup {
-            BookshelfView()
+            RootView()
                 .environmentObject(shelf)
                 .onOpenURL { url in
                     // 从「文件」App / 微信里点「用其他应用打开」时，直接导入

@@ -9,8 +9,15 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var settings: ReadingSettings
+    var sources: SourceStore? = nil
+    var books: [Book] = []
+    /// 作为底部「设置」tab 常驻时没有 sheet 可关闭
+    var embedded: Bool = false
+
     @Environment(\.dismiss) private var dismiss
     @AppStorage("stats.dailyGoalMinutes") private var goalMinutes: Int = 30
+    @State private var showManager = false
+    @State private var showStats = false
 
     var body: some View {
         NavigationStack {
@@ -112,14 +119,79 @@ struct SettingsView: View {
                 } footer: {
                     Text("书架顶部显示今天读了多久、连续几天，点进去看热力图和排行。全部只存本机。")
                 }
-            }
-            .navigationTitle("阅读设置")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { dismiss() }
+
+                if let sources {
+                    Section {
+                        Button {
+                            showManager = true
+                        } label: {
+                            HStack {
+                                Text("书源管理")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Text("\(sources.sources.filter { $0.enabled }.count)/\(sources.sources.count)")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        Button {
+                            showStats = true
+                        } label: {
+                            HStack {
+                                Text("阅读记录与排行")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    } header: {
+                        Text("书源与数据")
+                    } footer: {
+                        Text("导入 Legado 书源 JSON、开关单个源、批量停用用不了的源都在这里。")
+                    }
+                }
+
+                Section {
+                    HStack {
+                        Text("当前版本")
+                        Spacer()
+                        Text(verbatim: Self.versionText)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                } footer: {
+                    Text("本地阅读器 · 数据全部保存在本机，不联网同步。")
                 }
             }
+            .navigationTitle(embedded ? "设置" : "阅读设置")
+            .navigationBarTitleDisplayMode(embedded ? .large : .inline)
+            .toolbar {
+                if embedded == false {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("完成") { dismiss() }
+                    }
+                }
+            }
+            .sheet(isPresented: $showManager) {
+                if let sources {
+                    SourceManagerView(store: sources)
+                }
+            }
+            .sheet(isPresented: $showStats) {
+                StatsView(store: ReadingStatsStore.shared, books: books)
+            }
         }
+    }
+
+    private static var versionText: String {
+        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "-"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "-"
+        return "\(short) (\(build))"
     }
 }

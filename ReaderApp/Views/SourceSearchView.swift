@@ -33,6 +33,8 @@ struct SourceSearchView: View {
     @ObservedObject var shelf: BookshelfViewModel
     @ObservedObject var store: SourceStore
     var onOpenBook: (Book) -> Void
+    /// 作为底部「搜索」tab 常驻时没有可以 dismiss 的 sheet，就不要显示「关闭」
+    var embedded: Bool = false
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var vm = SourceViewModel()
@@ -85,8 +87,10 @@ struct SourceSearchView: View {
                 .navigationTitle("找书")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button("关闭") { dismiss() }
+                    if embedded == false {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("关闭") { dismiss() }
+                        }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {

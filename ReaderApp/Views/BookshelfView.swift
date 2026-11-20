@@ -43,14 +43,13 @@ enum ShelfSort: String, CaseIterable, Identifiable {
 struct BookshelfView: View {
     @EnvironmentObject var shelf: BookshelfViewModel
     @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var settings = ReadingSettings()
-    @StateObject private var sources = SourceStore()
+    @ObservedObject var settings: ReadingSettings
+    @ObservedObject var sources: SourceStore
 
     @State private var showImportLog = false
     @State private var importLog: [ImportLogItem] = []
     @State private var showSources = false
     @State private var selectedBook: Book?
-    @State private var showSettings = false
     @State private var showStats = false
     @State private var toast: String?
 
@@ -116,11 +115,6 @@ struct BookshelfView: View {
                         Image(systemName: "globe")
                     }
                     Button {
-                        showSettings = true
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                    }
-                    Button {
                         startPicking()
                     } label: {
                         Image(systemName: "plus").fontWeight(.semibold)
@@ -157,19 +151,11 @@ struct BookshelfView: View {
             } message: {
                 Text("只改显示的书名，不影响文件")
             }
-            .sheet(isPresented: $showSettings) {
-                SettingsView(settings: settings)
-            }
             .sheet(isPresented: $showStats) {
                 StatsView(store: ReadingStatsStore.shared, books: shelf.books)
             }
             .sheet(isPresented: $showSources) {
-                SourceSearchView(shelf: shelf, store: sources) { book in
-                    showSources = false
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        selectedBook = book
-                    }
-                }
+                SourceManagerView(store: sources)
             }
             .navigationDestination(item: $selectedBook) { book in
                 ReaderView(book: book, settings: settings)

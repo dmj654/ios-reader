@@ -11,6 +11,8 @@ import UniformTypeIdentifiers
 
 struct SourceManagerView: View {
     @ObservedObject var store: SourceStore
+    /// 从「设置」里推进来时不需要右上角「关闭」
+    var embedded: Bool = false
     @Environment(\.dismiss) private var dismiss
 
     @State private var showPaste = false
@@ -226,7 +228,9 @@ struct SourceManagerView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") { dismiss() }
+                    if embedded == false {
+                        Button("关闭") { dismiss() }
+                    }
                 }
             }
             .sheet(isPresented: $showPaste, onDismiss: {
