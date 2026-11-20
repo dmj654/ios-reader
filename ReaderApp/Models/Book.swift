@@ -125,6 +125,16 @@ struct Book: Identifiable, Codable, Hashable {
     /// 检测到有新章节
     var hasUpdate: Bool = false
 
+    init(title: String, author: String, format: BookFormat, fileName: String, totalUnits: Int) {
+        self.id = UUID()
+        self.title = title
+        self.author = author
+        self.format = format
+        self.fileName = fileName
+        self.totalUnits = totalUnits
+        self.addedAt = Date()
+    }
+
     var absoluteURL: URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return docs.appendingPathComponent("Books").appendingPathComponent(fileName)
