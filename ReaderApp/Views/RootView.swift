@@ -52,7 +52,7 @@ struct RootView: View {
                     .navigationBarTitleDisplayMode(.inline)
             }
             .tabItem {
-                Label("发现", systemImage: "compass")
+                Label("发现", systemImage: "square.grid.2x2")
             }
             .tag(RootTab.discover)
 

@@ -19,13 +19,13 @@ enum TextCache {
     }
 
     /// 缓存目录放在 Application Support（用户看不到，也不会被「文件」App 误改）
-    private static var dir: URL {
+    private static var defaultDir: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("TextCache", isDirectory: true)
     }
 
-    static func fileURL(bookID: UUID) -> URL {
-        dir.appendingPathComponent(bookID.uuidString).appendingPathExtension("json")
+    static func fileURL(bookID: UUID, dir: URL? = nil) -> URL {
+        (dir ?? defaultDir).appendingPathComponent(bookID.uuidString).appendingPathExtension("json")
     }
 
     /// 文件指纹：大小 + 修改时间
@@ -36,8 +36,8 @@ enum TextCache {
         return "\(size)-\(Int(mtime))"
     }
 
-    static func load(bookID: UUID, source: URL) -> BookText? {
-        let file = fileURL(bookID: bookID)
+    static func load(bookID: UUID, source: URL, dir: URL? = nil) -> BookText? {
+        let file = fileURL(bookID: bookID, dir: dir)
         guard let data = try? Data(contentsOf: file),
               let payload = try? JSONDecoder().decode(Payload.self, from: data) else { return nil }
         // 指纹不一致说明书换了，缓存作废
@@ -46,10 +46,11 @@ enum TextCache {
         return BookText(title: payload.title, author: payload.author, chapters: payload.chapters)
     }
 
-    static func save(_ text: BookText, bookID: UUID, source: URL) {
+    static func save(_ text: BookText, bookID: UUID, source: URL, dir: URL? = nil) {
         guard text.chapters.isEmpty == false else { return }
         let fm = FileManager.default
-        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let targetDir = dir ?? defaultDir
+        try? fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
 
         let payload = Payload(
             signature: signature(for: source),
@@ -58,11 +59,11 @@ enum TextCache {
             chapters: text.chapters
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
-        try? data.write(to: fileURL(bookID: bookID), options: .atomic)
+        try? data.write(to: fileURL(bookID: bookID, dir: dir), options: .atomic)
     }
 
-    static func remove(bookID: UUID) {
-        try? FileManager.default.removeItem(at: fileURL(bookID: bookID))
+    static func remove(bookID: UUID, dir: URL? = nil) {
+        try? FileManager.default.removeItem(at: fileURL(bookID: bookID, dir: dir))
     }
 
     /// 书籍被删除时一并清掉插图目录

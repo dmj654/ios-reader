@@ -686,39 +686,52 @@ struct TextReaderView: View {
         let targetImageDir = imageDir
         let bookID = book.id
 
-        let result: BookText? = await Task.detached(priority: .userInitiated) { () -> BookText? in
+        struct Loaded {
+            let bookText: BookText
+            let flat: String
+            let chapterStarts: [Int]
+            let anchors: [BookText.ImageAnchor]
+        }
+
+        let loaded: Loaded? = await Task.detached(priority: .userInitiated) { () -> Loaded? in
+            let parsed: BookText?
             // 先看解析缓存：同一本书第二次打开直接秒开
             if let cached = TextCache.load(bookID: bookID, source: url) {
-                return cached
+                parsed = cached
+            } else {
+                switch format {
+                case .txt:
+                    parsed = TextLoader.load(url: url, fallbackTitle: fallbackTitle)
+                case .epub:
+                    parsed = EpubParser.load(url: url, imageDir: targetImageDir)
+                default:
+                    parsed = nil
+                }
+                if let parsed {
+                    TextCache.save(parsed, bookID: bookID, source: url)
+                }
             }
-
-            let parsed: BookText?
-            switch format {
-            case .txt:
-                parsed = TextLoader.load(url: url, fallbackTitle: fallbackTitle)
-            case .epub:
-                parsed = EpubParser.load(url: url, imageDir: targetImageDir)
-            default:
-                parsed = nil
-            }
-
-            if let parsed {
-                TextCache.save(parsed, bookID: bookID, source: url)
-            }
-            return parsed
+            guard let bookText = parsed else { return nil }
+            let flattened = bookText.flattened()
+            return Loaded(
+                bookText: bookText,
+                flat: flattened.text,
+                chapterStarts: flattened.chapterStarts,
+                anchors: flattened.imageAnchors
+            )
         }.value
 
-        guard let bookText = result else {
+        guard let loaded else {
             errorText = "无法解析这本书，可能文件损坏或格式不支持。"
             isLoading = false
             return
         }
+        let bookText = loaded.bookText
 
         chapters = bookText.chapters
-        let flattenedContent = bookText.flattened()
-        flatText = flattenedContent.text
-        chapterStarts = flattenedContent.chapterStarts
-        imageAnchors = flattenedContent.imageAnchors
+        flatText = loaded.flat
+        chapterStarts = loaded.chapterStarts
+        imageAnchors = loaded.anchors
 
         if book.format == .epub, bookText.title.isEmpty == false {
             shelf.updateTitle(
@@ -742,6 +755,9 @@ struct TextReaderView: View {
         stats.beginSession(bookID: book.id)
     }
 
+    /// 分页请求序号：后台分页回来时丢弃过期结果，避免旧任务覆盖新排版
+    private var paginateToken = 0
+
     private func repaginate(keepingOffset: Bool) {
         guard flatText.isEmpty == false, innerSize.width > 20, innerSize.height > 20 else { return }
 
@@ -754,15 +770,39 @@ struct TextReaderView: View {
             paragraphSpacing: settings.paragraphSpacing,
             bold: settings.boldBody
         )
+        let text = flatText
+        let anchors = imageAnchors
+        let size = innerSize
 
-        let ns = flatText as NSString
+        paginateToken += 1
+        let token = paginateToken
+
+        Task.detached(priority: .userInitiated) {
+            let built = Self.buildPages(text: text, anchors: anchors, attrs: attrs, size: size)
+            await MainActor.run {
+                guard token == self.paginateToken else { return }
+                self.pages = built
+                self.pageIndex = self.firstPageIndex(forOffset: offset)
+                self.didJump = true
+            }
+        }
+    }
+
+    /// 纯分页逻辑（后台线程可跑）：按插图锚点切段，逐段 CoreText 排版
+    nonisolated static func buildPages(
+        text: String,
+        anchors: [BookText.ImageAnchor],
+        attrs: [NSAttributedString.Key: Any],
+        size: CGSize
+    ) -> [TextPage] {
+        let ns = text as NSString
         var built: [TextPage] = []
         var cursor = 0
 
         func appendTextPages(from start: Int, to end: Int) {
             guard end > start else { return }
             let segment = ns.substring(with: NSRange(location: start, length: end - start))
-            let ranges = TextPaginator.paginate(segment, attributes: attrs, pageSize: innerSize)
+            let ranges = TextPaginator.paginate(segment, attributes: attrs, pageSize: size)
             for range in ranges {
                 built.append(
                     TextPage(
@@ -774,7 +814,7 @@ struct TextReaderView: View {
             }
         }
 
-        for anchor in imageAnchors {
+        for anchor in anchors {
             let cut = min(max(anchor.offset, cursor), ns.length)
             appendTextPages(from: cursor, to: cut)
             built.append(TextPage(startOffset: cut, range: nil, imageFile: anchor.file))
@@ -785,10 +825,7 @@ struct TextReaderView: View {
         if built.isEmpty {
             built = [TextPage(startOffset: 0, range: NSRange(location: 0, length: ns.length), imageFile: nil)]
         }
-
-        pages = built
-        pageIndex = firstPageIndex(forOffset: didJump ? offset : book.location)
-        didJump = true
+        return built
     }
 
     private func saveProgress() {

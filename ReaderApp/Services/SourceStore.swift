@@ -55,7 +55,10 @@ final class SourceStore: ObservableObject {
     }
 
     var enabledSources: [BookSource] {
-        sources.filter { $0.enabled && $0.baseUrl.isEmpty == false && $0.search.list.isEmpty == false }
+        sources.filter {
+            $0.enabled && $0.baseUrl.isEmpty == false &&
+            ($0.search.list.isEmpty == false || $0.explore.list.isEmpty == false || $0.exploreLinks.isEmpty == false)
+        }
     }
 
     // MARK: - 持久化
