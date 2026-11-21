@@ -30,14 +30,8 @@ final class BackupStore: ObservableObject {
     @Published var busy = false
 
     private let fm = FileManager.default
-
-    private var docsDir: URL {
-        fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
-    }
-
-    private var appSupport: URL {
-        fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-    }
+    private let docsDir: URL
+    private let appSupport: URL
 
     /// iCloud Drive 容器里的同步目录；拿不到容器时为 nil（侧载签名常见）
     private var iCloudSyncDir: URL? {
@@ -50,6 +44,15 @@ final class BackupStore: ObservableObject {
     }
 
     private init() {
+        docsDir = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        refreshAvailability()
+    }
+
+    /// 测试注入：使用临时目录作为沙盒，不触碰真实容器
+    init(docsDir: URL, appSupport: URL) {
+        self.docsDir = docsDir
+        self.appSupport = appSupport
         refreshAvailability()
     }
 
@@ -73,6 +76,7 @@ final class BackupStore: ObservableObject {
         addFile("sources.json", url: docsDir.appendingPathComponent("Sources").appendingPathComponent("sources.json"))
         addFile("purifiers.json", url: docsDir.appendingPathComponent("Purifiers.json"))
         addFile("stats.json", url: appSupport.appendingPathComponent("ReadingStats").appendingPathComponent("stats.json"))
+        addFile("HomeLayout.json", url: appSupport.appendingPathComponent("HomeLayout.json"))
 
         // 设置与阅读位置快照（readpos- 是在线阅读进度，单独保留；同步时间戳不备份）
         let defaults = UserDefaults.standard
@@ -177,6 +181,7 @@ final class BackupStore: ObservableObject {
         write("sources.json", to: docsDir.appendingPathComponent("Sources").appendingPathComponent("sources.json"))
         write("purifiers.json", to: docsDir.appendingPathComponent("Purifiers.json"))
         write("stats.json", to: appSupport.appendingPathComponent("ReadingStats").appendingPathComponent("stats.json"))
+        write("HomeLayout.json", to: appSupport.appendingPathComponent("HomeLayout.json"))
 
         // 字体文件
         for (path, data) in files where path.hasPrefix("fonts/") {
@@ -276,6 +281,7 @@ final class BackupStore: ObservableObject {
         SourceStore.shared.load()
         PurifierStore.shared.reload()
         ReadingStatsStore.shared.reload()
+        HomeLayoutStore.shared.reload()
         FontStore.shared.refresh()
     }
 }
