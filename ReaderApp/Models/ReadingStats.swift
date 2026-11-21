@@ -132,26 +132,29 @@ final class ReadingStatsStore: ObservableObject {
     private var backgroundObserver: NSObjectProtocol?
     private var foregroundObserver: NSObjectProtocol?
 
+    private let storeURL: URL
+
     /// 连续这么久没有翻页 / 点按，就认为人走了，暂停计时
     private let idleLimit = 300
     /// 每攒够这么多秒就落盘一次
     private let flushEvery = 15
 
     private init() {
-        load()
-        observeAppLifecycle()
-    }
-
-    // MARK: 路径
-
-    private var storeURL: URL {
         let fm = FileManager.default
         let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("ReadingStats", isDirectory: true)
         if fm.fileExists(atPath: base.path) == false {
             try? fm.createDirectory(at: base, withIntermediateDirectories: true)
         }
-        return base.appendingPathComponent("stats.json")
+        storeURL = base.appendingPathComponent("stats.json")
+        load()
+        observeAppLifecycle()
+    }
+
+    /// 测试用：注入自定义持久化路径，不挂前后台监听
+    init(storeURL: URL) {
+        self.storeURL = storeURL
+        load()
     }
 
     // MARK: 读写
@@ -497,6 +500,13 @@ final class ReadingStatsStore: ObservableObject {
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    /// 清除单本书的历史统计（不删书架书目本体）
+    func clearBook(id: UUID) {
+        books.removeValue(forKey: id.uuidString)
+        save()
+        revision &+= 1
     }
 
     func reset() {

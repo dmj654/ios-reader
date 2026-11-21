@@ -70,6 +70,11 @@ struct RootView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView(settings: settings, sources: sources, books: shelf.books, shelf: shelf, embedded: true)
         }
+        .sheet(isPresented: $showHistory) {
+            HistoryView(shelf: shelf, onOpenBook: { book in
+                readerBook = book
+            })
+        }
         .sheet(item: $selectedSource) { item in
             NavigationStack {
                 Group {
