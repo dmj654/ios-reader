@@ -16,6 +16,7 @@ struct RootView: View {
     @State private var tab: RootTab = .home
     @State private var readerBook: Book?
     @State private var showSettings = false
+    @State private var showHistory = false
     /// 发现 / 搜索共用的书详情弹层
     @State private var selectedSource: SourceItem?
 
@@ -30,7 +31,9 @@ struct RootView: View {
                 sources: sources,
                 shelf: shelf,
                 onOpenBook: { readerBook = $0 },
-                onOpenSettings: { showSettings = true }
+                onOpenSettings: { showSettings = true },
+                switchTab: { tab = $0 },
+                openHistory: { showHistory = true }
             )
             .tabItem {
                 Label("主页", systemImage: "house")
