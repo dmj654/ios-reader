@@ -2,51 +2,62 @@
 //  HomeView.swift
 //  ReaderApp
 //
-//  主页（M1 骨架占位）：六张导航卡片的顺序与标题先固定下来，
-//  M2 接个性化排序/显隐，M3 接真实摘要数据与跳转。
+//  主页：卡片墙。可见卡片按 HomeLayoutStore 持久化的顺序排列；
+//  长按 / 编辑按钮进入编辑态，可拖动排序、隐藏与恢复卡片。
 //
 
 import SwiftUI
-
-/// 主页占位卡片条目（标题、副标题、图标）
-struct HomePlaceholder: Identifiable, Equatable {
-    let id: String
-    let title: String
-    let subtitle: String
-    let icon: String
-}
 
 struct HomeView: View {
     @ObservedObject var settings: ReadingSettings
     @ObservedObject var sources: SourceStore
     @ObservedObject var shelf: BookshelfViewModel
+    @ObservedObject private var homeLayout: HomeLayoutStore
 
     var onOpenBook: (Book) -> Void
     var onOpenSettings: () -> Void
+    /// 卡片点击回调（M3 接各 tab / 阅读页跳转）
+    var onTapCard: (HomeCardID) -> Void = { _ in }
 
-    /// PRD 3.2 定义的六张卡片默认顺序
-    static let defaultPlaceholders: [HomePlaceholder] = [
-        HomePlaceholder(id: "continue", title: "继续阅读", subtitle: "最近在读", icon: "bookmark"),
-        HomePlaceholder(id: "local", title: "本地", subtitle: "导入的小说与漫画", icon: "folder"),
-        HomePlaceholder(id: "history", title: "历史", subtitle: "读过的记录", icon: "clock"),
-        HomePlaceholder(id: "sources", title: "在线书源", subtitle: "可用书源", icon: "list.bullet"),
-        HomePlaceholder(id: "discover", title: "发现", subtitle: "书单与分类", icon: "compass"),
-        HomePlaceholder(id: "search", title: "搜索", subtitle: "书名 / 作者", icon: "magnifyingglass")
-    ]
+    @Environment(\.editMode) private var editMode
+
+    init(
+        settings: ReadingSettings,
+        sources: SourceStore,
+        shelf: BookshelfViewModel,
+        homeLayout: HomeLayoutStore = .shared,
+        onOpenBook: @escaping (Book) -> Void,
+        onOpenSettings: @escaping () -> Void,
+        onTapCard: @escaping (HomeCardID) -> Void = { _ in }
+    ) {
+        self.settings = settings
+        self.sources = sources
+        self.shelf = shelf
+        self.homeLayout = homeLayout
+        self.onOpenBook = onOpenBook
+        self.onOpenSettings = onOpenSettings
+        self.onTapCard = onTapCard
+    }
+
+    private var isEditing: Bool {
+        editMode?.wrappedValue == .active
+    }
 
     var body: some View {
         NavigationStack {
-            List(Self.defaultPlaceholders) { item in
-                HStack(spacing: 14) {
-                    Image(systemName: item.icon)
-                        .frame(width: 30)
-                        .foregroundStyle(.tint)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(item.title)
-                            .font(.system(size: 16, weight: .medium))
-                        Text(item.subtitle)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+            List {
+                Section {
+                    ForEach(homeLayout.layout.order) { id in
+                        visibleRow(id)
+                    }
+                    .onMove(perform: homeLayout.move)
+                }
+
+                if homeLayout.layout.hidden.isEmpty == false {
+                    Section("已隐藏") {
+                        ForEach(homeLayout.layout.hidden) { id in
+                            hiddenRow(id)
+                        }
                     }
                 }
             }
@@ -54,6 +65,9 @@ struct HomeView: View {
             .navigationTitle("主页")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    EditButton()
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         onOpenSettings()
@@ -62,6 +76,63 @@ struct HomeView: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - 行
+
+    private func visibleRow(_ id: HomeCardID) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: id.iconName)
+                .frame(width: 30)
+                .foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(id.title)
+                    .font(.system(size: 16, weight: .medium))
+                Text(id.subtitle)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            if isEditing {
+                Button {
+                    homeLayout.hide(id)
+                } label: {
+                    Image(systemName: "eye.slash")
+                }
+                .foregroundStyle(.secondary)
+                .buttonStyle(.plain)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isEditing == false {
+                onTapCard(id)
+            }
+        }
+    }
+
+    private func hiddenRow(_ id: HomeCardID) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: id.iconName)
+                .frame(width: 30)
+                .foregroundStyle(.tertiary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(id.title)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text(id.subtitle)
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 0)
+            Button {
+                homeLayout.restore(id)
+            } label: {
+                Image(systemName: "eye")
+            }
+            .foregroundStyle(.secondary)
+            .buttonStyle(.plain)
         }
     }
 }
