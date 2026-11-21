@@ -35,12 +35,16 @@ struct RootView: View {
                 switchTab: { tab = $0 },
                 openHistory: { showHistory = true }
             )
+            .background(AppTheme.background)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .tabItem {
                 Label("主页", systemImage: "house")
             }
             .tag(RootTab.home)
 
             BookshelfView(settings: settings, sources: sources)
+                .background(AppTheme.background)
+                .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
                 .tabItem {
                     Label("书架", systemImage: "books.vertical")
                 }
@@ -51,6 +55,8 @@ struct RootView: View {
                     .navigationTitle("发现")
                     .navigationBarTitleDisplayMode(.inline)
             }
+            .background(AppTheme.background)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .tabItem {
                 Label("发现", systemImage: "square.grid.2x2")
             }
@@ -59,6 +65,8 @@ struct RootView: View {
             SourceSearchView(shelf: shelf, store: sources, onOpenBook: { book in
                 readerBook = book
             }, embedded: true)
+            .background(AppTheme.background)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .tabItem {
                 Label("搜索", systemImage: "magnifyingglass")
             }

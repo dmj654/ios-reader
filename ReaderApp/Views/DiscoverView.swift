@@ -45,6 +45,7 @@ struct DiscoverView: View {
             .padding(.top, 10)
             .padding(.bottom, 24)
         }
+        .background(AppTheme.background)
         .onAppear {
             if selectedSourceID == nil, let first = activeSources.first {
                 selectSource(first)
@@ -89,10 +90,13 @@ struct DiscoverView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(
-                selected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.10),
+                selected ? AppTheme.accentSoft : AppTheme.card,
                 in: Capsule()
             )
-            .foregroundStyle(selected ? Color.accentColor : Color.primary)
+            .overlay(
+                Capsule().stroke(AppTheme.stroke, lineWidth: 0.5)
+            )
+            .foregroundStyle(selected ? AppTheme.accent : AppTheme.primary)
         }
         .buttonStyle(.plain)
     }
@@ -116,11 +120,14 @@ struct DiscoverView: View {
                                 .padding(.vertical, 7)
                                 .background(
                                     link == selectedLink
-                                        ? Color.primary.opacity(0.88)
-                                        : Color.secondary.opacity(0.12),
+                                        ? AppTheme.accent
+                                        : AppTheme.card,
                                     in: Capsule()
                                 )
-                                .foregroundStyle(link == selectedLink ? Color.white : Color.primary)
+                                .overlay(
+                                    Capsule().stroke(AppTheme.stroke, lineWidth: 0.5)
+                                )
+                                .foregroundStyle(link == selectedLink ? Color.white : AppTheme.primary)
                         }
                         .buttonStyle(.plain)
                     }
@@ -179,13 +186,13 @@ struct DiscoverView: View {
 
                 Text(item.name)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(AppTheme.primary)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Text(item.author.isEmpty ? "未知作者" : item.author)
                     .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppTheme.secondary)
                     .lineLimit(1)
             }
         }
@@ -221,8 +228,8 @@ struct DiscoverView: View {
         }
         .aspectRatio(0.72, contentMode: .fit)
         .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(AppTheme.stroke, lineWidth: 0.5)
         )
     }
 
@@ -273,6 +280,6 @@ private struct SectionTitle: View {
     var body: some View {
         Text(text)
             .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppTheme.secondary)
     }
 }

@@ -107,6 +107,7 @@ struct SourceSearchView: View {
             }
             .navigationTitle("找书")
             .navigationBarTitleDisplayMode(.inline)
+            .background(AppTheme.background)
             .toolbar {
                 if embedded == false {
                     ToolbarItem(placement: .topBarLeading) {
@@ -192,13 +193,14 @@ struct SourceSearchView: View {
                     .font(.system(size: 12, weight: .medium))
                     .padding(.horizontal, 9)
                     .padding(.vertical, 6)
-                    .background(Color.secondary.opacity(0.14), in: Capsule())
+                    .background(AppTheme.accentSoft, in: Capsule())
+                    .foregroundStyle(AppTheme.accent)
                 }
             }
             .padding(.horizontal, 16)
         }
         .padding(.vertical, 8)
-        .background(.bar)
+        .glassBar()
     }
 
     @ViewBuilder
@@ -312,10 +314,11 @@ struct SourceSearchView: View {
                                 } label: {
                                     Text(word)
                                         .font(.system(size: 12))
-                                        .foregroundStyle(.primary)
+                                        .foregroundStyle(AppTheme.secondary)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 5)
-                                        .background(Color.secondary.opacity(0.14), in: Capsule())
+                                        .background(AppTheme.card, in: Capsule())
+                                        .overlay(Capsule().stroke(AppTheme.stroke, lineWidth: 0.5))
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -467,10 +470,12 @@ struct SourceSearchView: View {
                     } label: {
                         Text(exactOnly ? "精确 · 开" : "精确")
                             .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(exactOnly ? AppTheme.accent : AppTheme.secondary)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
-                            .background(exactOnly ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.12),
+                            .background(exactOnly ? AppTheme.accentSoft : AppTheme.card,
                                         in: Capsule())
+                            .overlay(Capsule().stroke(AppTheme.stroke, lineWidth: 0.5))
                     }
                     .buttonStyle(.plain)
                 }
@@ -488,29 +493,34 @@ struct SourceSearchView: View {
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(item.name)
                                     .font(.system(size: 16, weight: .medium))
-                                    .foregroundStyle(.primary)
+                                    .foregroundStyle(AppTheme.primary)
                                     .lineLimit(1)
                                 Text(item.author.isEmpty ? "未知作者" : item.author)
                                     .font(.system(size: 12))
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(AppTheme.secondary)
                                     .lineLimit(1)
                                 HStack(spacing: 5) {
                                     Text(item.sourceName)
                                         .font(.system(size: 9))
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(AppTheme.accent)
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 2)
-                                        .background(Color.secondary.opacity(0.12), in: Capsule())
+                                        .background(AppTheme.accentSoft, in: Capsule())
                                     Text(item.type.title)
                                         .font(.system(size: 9))
-                                        .foregroundStyle(.tertiary)
+                                        .foregroundStyle(AppTheme.tertiary)
                                 }
                             }
                             Spacer(minLength: 0)
                         }
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .appCard(radius: AppTheme.radiusInner)
                     }
                     .buttonStyle(.plain)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 16))
                 }
             } header: {
                 Text("共 \(visibleResults.count) 条结果")
@@ -519,6 +529,8 @@ struct SourceSearchView: View {
             }
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(AppTheme.background)
     }
 
     @ViewBuilder
@@ -542,8 +554,8 @@ struct SourceSearchView: View {
         }
         .frame(width: 56, height: 76)
         .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(AppTheme.stroke, lineWidth: 0.5)
         )
     }
 }

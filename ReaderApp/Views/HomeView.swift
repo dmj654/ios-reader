@@ -88,6 +88,7 @@ struct HomeView: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
+            .background(AppTheme.background)
             .navigationTitle("主页")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
@@ -114,9 +115,10 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(id.title)
                     .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(AppTheme.primary)
                 Text(summary(for: id))
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppTheme.secondary)
                     .lineLimit(2)
             }
 
@@ -126,10 +128,7 @@ struct HomeView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(
-            Color(uiColor: .secondarySystemBackground),
-            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-        )
+        .appCard()
         .contentShape(Rectangle())
         .onTapGesture {
             if isEditing == false {
@@ -141,10 +140,10 @@ struct HomeView: View {
     private func iconBlock(_ id: HomeCardID) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.accentColor.opacity(0.12))
+                .fill(AppTheme.accentSoft)
             Image(systemName: id.iconName)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .font(.system(size: 17, weight: .regular))
+                .foregroundStyle(AppTheme.accent)
         }
         .frame(width: 40, height: 40)
     }
@@ -180,8 +179,12 @@ struct HomeView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(
-            Color(uiColor: .secondarySystemBackground).opacity(0.5),
-            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            AppTheme.card.opacity(0.55),
+            in: RoundedRectangle(cornerRadius: AppTheme.radiusInner, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusInner, style: .continuous)
+                .stroke(AppTheme.stroke, lineWidth: 0.5)
         )
     }
 

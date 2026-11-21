@@ -28,6 +28,9 @@ struct HistoryView: View {
                 } else {
                     ForEach(entries) { entry in
                         row(entry)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 16))
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 onOpenBook(entry.book)
@@ -39,6 +42,8 @@ struct HistoryView: View {
                 }
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(AppTheme.background)
             .navigationTitle("历史")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -72,22 +77,26 @@ struct HistoryView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(entry.book.title)
                     .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(AppTheme.primary)
                     .lineLimit(1)
                 Text(authorText(entry.book))
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppTheme.secondary)
                     .lineLimit(1)
                 Text("\(StatsFormat.day(entry.stat.lastAt)) · \(StatsFormat.duration(entry.stat.seconds)) · \(entry.stat.pages) 页")
                     .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(AppTheme.tertiary)
             }
 
             Spacer(minLength: 0)
 
             Image(systemName: "chevron.right")
                 .font(.system(size: 12))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(AppTheme.tertiary)
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .appCard(radius: AppTheme.radiusInner)
     }
 
     private func authorText(_ book: Book) -> String {
@@ -125,7 +134,11 @@ private struct HistoryCover: View {
             }
         }
         .frame(width: 44, height: 60)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(AppTheme.stroke, lineWidth: 0.5)
+        )
         .task { loadCover() }
     }
 

@@ -84,6 +84,7 @@ struct BookshelfView: View {
                     importOverlay
                 }
             }
+            .background(AppTheme.background)
             .navigationTitle("书架")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
@@ -301,13 +302,16 @@ struct BookshelfView: View {
                             .font(.system(size: 13, weight: .medium))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 7)
-                            .foregroundStyle(filter == item ? Color.white : Color.secondary)
+                            .foregroundStyle(filter == item ? Color.white : AppTheme.secondary)
                             .background(
                                 Capsule().fill(
                                     filter == item
-                                        ? Color.primary.opacity(0.88)
-                                        : Color(uiColor: .secondarySystemBackground)
+                                        ? AppTheme.accent
+                                        : AppTheme.card
                                 )
+                            )
+                            .overlay(
+                                Capsule().stroke(AppTheme.stroke, lineWidth: 0.5)
                             )
                     }
                     .buttonStyle(.plain)
@@ -450,10 +454,10 @@ struct CoverCell: View {
                 }
             }
             .aspectRatio(0.72, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(Color.primary.opacity(0.07), lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(AppTheme.stroke, lineWidth: 0.5)
             )
             .overlay(alignment: .topTrailing) {
                 if book.hasUpdate {
@@ -647,10 +651,7 @@ struct StatsBanner: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(
-                Color(uiColor: .secondarySystemBackground),
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-            )
+            .appCard(radius: AppTheme.radiusInner)
         }
         .buttonStyle(.plain)
     }
@@ -658,16 +659,16 @@ struct StatsBanner: View {
     private var ring: some View {
         ZStack {
             Circle()
-                .stroke(Color.primary.opacity(0.09), lineWidth: 4)
+                .stroke(AppTheme.stroke, lineWidth: 4)
 
             Circle()
                 .trim(from: 0, to: max(0.001, summary.goalFraction))
-                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                .stroke(AppTheme.accent, style: StrokeStyle(lineWidth: 4, lineCap: .round))
                 .rotationEffect(.degrees(-90))
 
             Image(systemName: "book.fill")
                 .font(.system(size: 9))
-                .foregroundStyle(Color.accentColor.opacity(0.85))
+                .foregroundStyle(AppTheme.accent)
         }
         .frame(width: 34, height: 34)
     }
