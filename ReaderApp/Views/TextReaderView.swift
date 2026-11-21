@@ -48,6 +48,12 @@ struct TextReaderView: View {
     @ObservedObject var settings: ReadingSettings
     let onExit: () -> Void
 
+    init(book: Book, settings: ReadingSettings, onExit: @escaping () -> Void) {
+        self.book = book
+        self.settings = settings
+        self.onExit = onExit
+    }
+
     @EnvironmentObject var shelf: BookshelfViewModel
 
     @State private var chapters: [Chapter] = []
