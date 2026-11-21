@@ -82,7 +82,7 @@ struct HomeLayout: Codable, Equatable {
     }
 
     /// 数组里遇到未知 raw 值时跳过，而不是整包解码失败
-    private static func decodeIDList(_ c: KeyedDecodingContainer, _ key: CodingKeys) -> [HomeCardID] {
+    private static func decodeIDList(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> [HomeCardID] {
         guard let raw = try? c.decode([String].self, forKey: key) else { return [] }
         return raw.compactMap { HomeCardID(rawValue: $0) }
     }
