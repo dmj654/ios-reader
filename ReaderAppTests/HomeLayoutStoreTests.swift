@@ -27,8 +27,9 @@ final class HomeLayoutStoreTests: XCTestCase {
         let store = try! makeStore()
         store.move(fromOffsets: IndexSet([0]), toOffset: 3)
 
+        // 把第 1 张拖到第 3 个位置（插到原第 3 张之前）：[B,C,A,D,E,F]
         XCTAssertEqual(store.layout.order, [
-            .local, .history, .sources, .continueReading, .discover, .search
+            .local, .history, .continueReading, .sources, .discover, .search
         ])
         XCTAssertEqual(store.layout.hidden, [])
     }
