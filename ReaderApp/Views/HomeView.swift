@@ -1,6 +1,5 @@
 //
 //  HomeView.swift
-//  ReaderApp
 //
 //  主页：卡片墙。可见卡片按 HomeLayoutStore 持久化的顺序排列；
 //  编辑态可拖动排序、隐藏与恢复；非编辑态点卡片跳转到对应页面。
@@ -69,6 +68,9 @@ struct HomeView: View {
                 Section {
                     ForEach(homeLayout.layout.order) { id in
                         visibleRow(id)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                     }
                     .onMove(perform: homeLayout.move)
                 }
@@ -77,11 +79,15 @@ struct HomeView: View {
                     Section("已隐藏") {
                         ForEach(homeLayout.layout.hidden) { id in
                             hiddenRow(id)
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                         }
                     }
                 }
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
             .navigationTitle("主页")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
@@ -103,9 +109,7 @@ struct HomeView: View {
 
     private func visibleRow(_ id: HomeCardID) -> some View {
         HStack(spacing: 14) {
-            Image(systemName: id.iconName)
-                .frame(width: 30)
-                .foregroundStyle(.tint)
+            iconBlock(id)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(id.title)
@@ -113,12 +117,19 @@ struct HomeView: View {
                 Text(summary(for: id))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
 
             Spacer(minLength: 0)
 
             trailing(for: id)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            Color(uiColor: .secondarySystemBackground),
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+        )
         .contentShape(Rectangle())
         .onTapGesture {
             if isEditing == false {
@@ -127,14 +138,31 @@ struct HomeView: View {
         }
     }
 
+    private func iconBlock(_ id: HomeCardID) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.accentColor.opacity(0.12))
+            Image(systemName: id.iconName)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+        }
+        .frame(width: 40, height: 40)
+    }
+
     private func hiddenRow(_ id: HomeCardID) -> some View {
         HStack(spacing: 14) {
-            Image(systemName: id.iconName)
-                .frame(width: 30)
-                .foregroundStyle(.tertiary)
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.secondary.opacity(0.12))
+                Image(systemName: id.iconName)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 40, height: 40)
+
             VStack(alignment: .leading, spacing: 3) {
                 Text(id.title)
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(.secondary)
                 Text(id.subtitle)
                     .font(.footnote)
@@ -149,6 +177,12 @@ struct HomeView: View {
             .foregroundStyle(.secondary)
             .buttonStyle(.plain)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            Color(uiColor: .secondarySystemBackground).opacity(0.5),
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
     }
 
     // MARK: - 摘要与跳转

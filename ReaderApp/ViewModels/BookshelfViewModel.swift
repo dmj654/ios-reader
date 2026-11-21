@@ -22,7 +22,6 @@ final class BookshelfViewModel: ObservableObject {
 
     private let fm = FileManager.default
     private let storeURL: URL
-    private let shelfFileName = "bookshelf.json"
 
     /// App 沙盒的 Documents 目录（「文件」App 里显示为「我的 iPhone / 本地阅读器」）
     private var docsDir: URL {
@@ -65,45 +64,90 @@ final class BookshelfViewModel: ObservableObject {
         try? data.write(to: storeURL, options: .atomic)
     }
 
-    // MARK: - 扫描与归位（核心修复）
+    // MARK: - 扫描与归位（后台线程做磁盘 IO，主线程只合并结果）
 
-    /// 扫描 App 目录，把根目录的书归位到 Books/，再和书架记录对齐
+    private var isScanning = false
+
+    /// 扫描 App 目录：后台归位散落在外的书，再把磁盘清单和书架记录对齐
     func scan() {
         ensureDirs()
-        adoptLooseFiles()
-        refreshFromDisk()
+        guard isScanning == false else { return }
+        isScanning = true
+
+        let docs = docsDir
+        let books = booksDir
+        let inbox = inboxDir
+        Task.detached(priority: .utility) {
+            let result = BookshelfViewModel.scanDisk(docsDir: docs, booksDir: books, inboxDir: inbox)
+            await MainActor.run {
+                self.merge(disk: result)
+                self.isScanning = false
+            }
+        }
     }
 
     /// 系统「拷贝到本 App」时文件会先落在 Documents/Inbox
     private var inboxDir: URL { docsDir.appendingPathComponent("Inbox") }
 
-    /// 把 Documents 根目录 和 Inbox 里能识别的书都收进书架
-    private func adoptLooseFiles() {
-        for dir in [docsDir, inboxDir] {
+    /// 磁盘清单条目（后台产出，回主线程合并）
+    struct DiskEntry: Sendable {
+        let fileName: String
+        let format: BookFormat
+    }
+
+    struct DiskScanResult: Sendable {
+        let entries: [DiskEntry]
+    }
+
+    /// 后台：归位根目录 / Inbox 里的书，列出 Books 目录识别成功的书
+    nonisolated static func scanDisk(docsDir: URL, booksDir: URL, inboxDir: URL) -> DiskScanResult {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: booksDir.path) == false {
+            try? fm.createDirectory(at: booksDir, withIntermediateDirectories: true)
+        }
+        adoptLooseFiles(from: [docsDir, inboxDir], booksDir: booksDir)
+
+        var entries: [DiskEntry] = []
+        let onDisk = (try? fm.contentsOfDirectory(atPath: booksDir.path)) ?? []
+        for name in onDisk {
+            let url = booksDir.appendingPathComponent(name)
+            guard isRegularFile(url), let format = BookFormat.detect(for: url) else { continue }
+            // JSON 之类的结构化数据不是书，别收进书架
+            if format == .txt, looksLikeStructuredData(url) { continue }
+            entries.append(DiskEntry(fileName: name, format: format))
+        }
+        return DiskScanResult(entries: entries)
+    }
+
+    private static func adoptLooseFiles(from dirs: [URL], booksDir: URL) {
+        let fm = FileManager.default
+        for dir in dirs {
             guard fm.fileExists(atPath: dir.path) else { continue }
             let names = (try? fm.contentsOfDirectory(atPath: dir.path)) ?? []
             for name in names {
-                guard name != shelfFileName else { continue }
+                guard name != "bookshelf.json" else { continue }
                 let src = dir.appendingPathComponent(name)
                 guard isRegularFile(src) else { continue }
                 guard let format = BookFormat.detect(for: src) else { continue }
-                if format == .txt, BookshelfViewModel.looksLikeStructuredData(src) { continue }
+                if format == .txt, looksLikeStructuredData(src) { continue }
 
-                let dest = uniqueDestination(preferredName: BookshelfViewModel.normalizedName(name, format: format))
+                let dest = booksDir.appendingPathComponent(
+                    uniqueName(in: booksDir, preferredName: normalizedName(name, format: format)))
                 moveOrCopy(from: src, to: dest)
             }
         }
     }
 
-    private func isRegularFile(_ url: URL) -> Bool {
+    private static func isRegularFile(_ url: URL) -> Bool {
         var isDir: ObjCBool = false
-        guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else { return false }
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return false }
         return isDir.boolValue == false
     }
 
     /// 移动失败就退化成「读进内存再写出去」
     @discardableResult
-    private func moveOrCopy(from src: URL, to dest: URL) -> Bool {
+    private static func moveOrCopy(from src: URL, to dest: URL) -> Bool {
+        let fm = FileManager.default
         if (try? fm.moveItem(at: src, to: dest)) != nil { return true }
         if let data = try? Data(contentsOf: src) {
             if (try? data.write(to: dest, options: .atomic)) != nil {
@@ -114,36 +158,30 @@ final class BookshelfViewModel: ObservableObject {
         return false
     }
 
-    /// 和书架记录对齐：删掉已不存在的文件，补上目录里没登记的文件
-    private func refreshFromDisk() {
-        let onDisk = (try? fm.contentsOfDirectory(atPath: booksDir.path)) ?? []
-        let existing = Set(onDisk)
+    /// 主线程：把磁盘清单和书架记录对齐（纯逻辑，便于测试）
+    nonisolated static func reconcile(current: [Book], entries: [DiskEntry]) -> (books: [Book], queued: [DiskEntry]) {
+        let onDisk = Set(entries.map(\.fileName))
 
-        // 已经登记过、但其实是「被误收进来的书源 / JSON」的，从书架里摘掉（文件保留，让书源去回收）
-        books.removeAll { book in
-            guard existing.contains(book.fileName) else { return true }
-            guard book.format == .txt else { return false }
-            return BookshelfViewModel.looksLikeStructuredData(booksDir.appendingPathComponent(book.fileName))
-        }
+        // 文件已不在磁盘上，或是被误收进来的配置文件，从书架里摘掉（文件保留）
+        var books = current.filter { onDisk.contains($0.fileName) }
 
         let known = Set(books.map { $0.fileName })
-        var queued: [(String, BookFormat)] = []
-        for name in onDisk where known.contains(name) == false {
-            let url = booksDir.appendingPathComponent(name)
-            guard isRegularFile(url), let format = BookFormat.detect(for: url) else { continue }
-            // JSON 之类的结构化数据不是书，别收进书架
-            if format == .txt, BookshelfViewModel.looksLikeStructuredData(url) { continue }
-            // 先用文件名占位，元数据（书名/作者/总页数）后台再补，避免卡住界面
-            books.append(Book(title: url.deletingPathExtension().lastPathComponent,
-                              author: "未知",
-                              format: format,
-                              fileName: name,
-                              totalUnits: 0))
-            queued.append((name, format))
+        var queued: [DiskEntry] = []
+        for entry in entries where known.contains(entry.fileName) == false {
+            let title = (entry.fileName as NSString).deletingPathExtension
+            books.append(Book(title: title, author: "未知", format: entry.format,
+                              fileName: entry.fileName, totalUnits: 0))
+            queued.append(entry)
         }
+        return (books, queued)
+    }
+
+    private func merge(disk: DiskScanResult) {
+        let result = Self.reconcile(current: books, entries: disk.entries)
+        books = result.books
         save()
-        for item in queued {
-            requestMetadata(fileName: item.0, format: item.1)
+        for entry in result.queued {
+            requestMetadata(fileName: entry.fileName, format: entry.format)
         }
     }
 
@@ -162,13 +200,6 @@ final class BookshelfViewModel: ObservableObject {
         if ext == format.fileExtension { return name }
         let cleanBase = base.isEmpty ? "未命名" : base
         return "\(cleanBase).\(format.fileExtension)"
-    }
-
-    /// 生成不冲突的目标路径（实例侧包一层）
-    private func uniqueDestination(preferredName: String) -> URL {
-        booksDir.appendingPathComponent(
-            BookshelfViewModel.uniqueName(in: booksDir, preferredName: preferredName)
-        )
     }
 
     nonisolated static func uniqueName(in dir: URL, preferredName: String) -> String {
