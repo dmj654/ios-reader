@@ -10,10 +10,13 @@ import Foundation
 
 enum HomeSummary {
 
-    /// 最近在读：lastReadAt 最新；缺失回退 addedAt
+    /// 最近在读：lastReadAt 最新；相同或缺失时回退 addedAt
     static func mostRecentBook(books: [Book]) -> Book? {
-        books.sorted {
-            ($0.lastReadAt ?? Date.distantPast) > ($1.lastReadAt ?? Date.distantPast)
+        books.sorted { a, b in
+            let aRead = a.lastReadAt ?? Date.distantPast
+            let bRead = b.lastReadAt ?? Date.distantPast
+            if aRead != bRead { return aRead > bRead }
+            return a.addedAt > b.addedAt
         }.first
     }
 
