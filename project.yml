@@ -27,6 +27,9 @@ schemes:
     build:
       targets:
         ReaderApp: all
+    test:
+      targets:
+        - ReaderAppTests
     run:
       config: Debug
     profile:
@@ -63,8 +66,8 @@ targets:
       properties:
         CFBundleDisplayName: "本地阅读器"
         CFBundleName: "本地阅读器"
-        CFBundleShortVersionString: "1.24.4"
-        CFBundleVersion: "48"
+        CFBundleShortVersionString: "1.25.0"
+        CFBundleVersion: "49"
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
         UIRequiresFullScreen: false
@@ -119,3 +122,15 @@ targets:
               - public.zip-archive
             UTTypeTagSpecification:
               public.filename-extension: ["cbz"]
+
+  ReaderAppTests:
+    type: bundle.test
+    platform: iOS
+    sources:
+      - path: ReaderAppTests
+    dependencies:
+      - target: ReaderApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.local.reader.tests
+        PRODUCT_NAME: ReaderAppTests
