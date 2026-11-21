@@ -97,7 +97,8 @@ struct HomeLayout: Codable, Equatable {
         }
         var cleanedHidden: [HomeCardID] = []
         var hiddenSeen = Set<HomeCardID>()
-        for id in hidden where seen.contains(id) == false, hiddenSeen.contains(id) == false {
+        for id in hidden where seen.contains(id) == false {
+            if hiddenSeen.contains(id) { continue }
             hiddenSeen.insert(id)
             cleanedHidden.append(id)
         }
