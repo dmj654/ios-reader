@@ -124,7 +124,7 @@ targets:
               public.filename-extension: ["cbz"]
 
   ReaderAppTests:
-    type: bundle.test
+    type: bundle.unit-test
     platform: iOS
     sources:
       - path: ReaderAppTests
