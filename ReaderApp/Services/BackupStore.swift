@@ -83,7 +83,8 @@ final class BackupStore: ObservableObject {
         var snapshot: [String: Any] = [:]
         for (key, value) in defaults.dictionaryRepresentation() {
             guard key.hasPrefix("readpos-") == false, key != "backup.lastSyncedAt" else { continue }
-            snapshot[key] = value
+            guard let safe = Self.jsonSafe(value) else { continue }
+            snapshot[key] = safe
         }
         if let data = try? JSONSerialization.data(withJSONObject: snapshot) {
             entries.append(("settings.json", data))
@@ -102,6 +103,28 @@ final class BackupStore: ObservableObject {
         }
 
         return entries
+    }
+
+    /// 只保留 JSONSerialization 可序列化的值；Data / 自定义对象等直接跳过。
+    /// JSONSerialization 遇到不支持类型会抛 ObjC 异常，`try?` 拦不住，必须先过滤。
+    private static func jsonSafe(_ value: Any) -> Any? {
+        switch value {
+        case let v as String: return v
+        case let v as NSNumber: return v
+        case let v as Bool: return v
+        case let v as Int: return v
+        case let v as Double: return v
+        case let v as [Any]:
+            return v.compactMap { jsonSafe($0) }
+        case let v as [String: Any]:
+            var out: [String: Any] = [:]
+            for (key, inner) in v {
+                if let safe = jsonSafe(inner) { out[key] = safe }
+            }
+            return out
+        case is NSNull: return NSNull()
+        default: return nil
+        }
     }
 
     // MARK: - 打包
