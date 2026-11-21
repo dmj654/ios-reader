@@ -71,11 +71,11 @@ final class HomeSummaryTests: XCTestCase {
     }
 
     func testUsableSourceCountCountsOnlyEnabledUsable() {
-        let usable = BookSource()
+        var usable = BookSource()
         usable.enabled = true
         usable.baseUrl = "https://example.com"
 
-        let disabled = BookSource()
+        var disabled = BookSource()
         disabled.enabled = false
         disabled.baseUrl = "https://disabled.example.com"
 
