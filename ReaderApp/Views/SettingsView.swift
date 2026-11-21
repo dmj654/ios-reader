@@ -365,7 +365,7 @@ struct SettingsView: View {
         Section {
             HStack(spacing: 8) {
                 Image(systemName: backup.iCloudAvailable ? "icloud.fill" : "icloud.slash")
-                    .foregroundStyle(backup.iCloudAvailable ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(backup.iCloudAvailable ? AppTheme.accent : AppTheme.secondary)
                 Text(backup.iCloudAvailable ? "iCloud 已连接" : "iCloud 不可用")
                 Spacer()
                 Text(backup.lastSyncedAt?.formatted(date: .abbreviated, time: .shortened) ?? "还没同步过")
@@ -398,7 +398,7 @@ struct SettingsView: View {
 
             HStack(spacing: 8) {
                 Image(systemName: dav.configured ? "externaldrive.fill" : "externaldrive")
-                    .foregroundStyle(dav.configured ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(dav.configured ? AppTheme.accent : AppTheme.secondary)
                 Text(dav.configured ? "WebDAV 已配置" : "WebDAV 未配置")
                 Spacer()
                 if let t = dav.lastSyncedAt {

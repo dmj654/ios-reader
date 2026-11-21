@@ -536,20 +536,20 @@ struct SourceSearchView: View {
     @ViewBuilder
     private func cover(for item: SourceItem) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemBackground))
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(AppTheme.card)
 
             if item.cover.isEmpty == false, let url = URL(string: item.cover) {
                 AsyncImage(url: url) { image in
                     image.resizable().scaledToFill()
                 } placeholder: {
                     Image(systemName: "book.closed")
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(AppTheme.tertiary)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             } else {
                 Image(systemName: item.type == .comic ? "photo.on.rectangle" : "book.closed")
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(AppTheme.tertiary)
             }
         }
         .frame(width: 56, height: 76)
@@ -704,7 +704,7 @@ struct SourceBookView: View {
                             .lineLimit(2)
                         Text(item.author.isEmpty ? "未知作者" : item.author)
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AppTheme.secondary)
                             .lineLimit(1)
                         HStack(spacing: 6) {
                             Text(source.name)
@@ -717,16 +717,17 @@ struct SourceBookView: View {
                             }
                         }
                         .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(AppTheme.tertiary)
                         .lineLimit(1)
 
                         if vm.meta.status.isEmpty == false || vm.meta.wordCount.isEmpty == false || vm.meta.latestChapter.isEmpty == false {
                             HStack(spacing: 6) {
                                 if vm.meta.status.isEmpty == false {
                                     Text(vm.meta.status)
+                                        .foregroundStyle(AppTheme.accent)
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 1)
-                                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                                        .background(AppTheme.accentSoft, in: Capsule())
                                 }
                                 if vm.meta.wordCount.isEmpty == false {
                                     Text(vm.meta.wordCount)
@@ -750,7 +751,7 @@ struct SourceBookView: View {
                 Section {
                     Text(vm.meta.intro)
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.secondary)
                         .lineLimit(expandedIntro ? nil : 6)
                     Button {
                         expandedIntro.toggle()
@@ -960,27 +961,27 @@ struct SourceBookView: View {
 
     private func cover(size: CGSize) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemBackground))
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(AppTheme.card)
 
             if item.cover.isEmpty == false, let url = URL(string: item.cover) {
                 AsyncImage(url: url) { image in
                     image.resizable().scaledToFill()
                 } placeholder: {
                     Image(systemName: "book.closed")
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(AppTheme.tertiary)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             } else {
                 Image(systemName: item.type == .comic ? "photo.on.rectangle" : "book.closed")
                     .font(.system(size: 24))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(AppTheme.tertiary)
             }
         }
         .frame(width: size.width, height: size.height)
         .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(AppTheme.stroke, lineWidth: 0.5)
         )
     }
 

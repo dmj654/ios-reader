@@ -152,7 +152,7 @@ struct StatsView: View {
                 .trim(from: 0, to: max(0.001, summary.goalFraction))
                 .stroke(
                     LinearGradient(
-                        colors: [Color.accentColor.opacity(0.85), Color.accentColor],
+                        colors: [AppTheme.accent.opacity(0.85), AppTheme.accent],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ),
@@ -292,11 +292,11 @@ struct StatsView: View {
 
     private func heatColor(_ seconds: Int) -> Color {
         if seconds <= 0 { return Color.primary.opacity(0.06) }
-        if seconds < 300 { return Color.accentColor.opacity(0.28) }
-        if seconds < 900 { return Color.accentColor.opacity(0.45) }
-        if seconds < 1800 { return Color.accentColor.opacity(0.62) }
-        if seconds < 3600 { return Color.accentColor.opacity(0.82) }
-        return Color.accentColor
+        if seconds < 300 { return AppTheme.accent.opacity(0.28) }
+        if seconds < 900 { return AppTheme.accent.opacity(0.45) }
+        if seconds < 1800 { return AppTheme.accent.opacity(0.62) }
+        if seconds < 3600 { return AppTheme.accent.opacity(0.82) }
+        return AppTheme.accent
     }
 
     private var legend: some View {
@@ -346,8 +346,8 @@ struct StatsView: View {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
                         .fill(
                             index == series.count - 1
-                                ? Color.accentColor
-                                : Color.accentColor.opacity(0.35)
+                                ? AppTheme.accent
+                                : AppTheme.accent.opacity(0.35)
                         )
                         .frame(height: max(3, CGFloat(Double(item.stat.seconds) / Double(peak)) * 56))
 
@@ -410,7 +410,7 @@ struct StatsView: View {
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color.primary.opacity(0.08))
                         Capsule()
-                            .fill(Color.accentColor.opacity(0.75))
+                            .fill(AppTheme.accent.opacity(0.75))
                             .frame(width: max(1, geo.size.width * book.progress))
                     }
                 }

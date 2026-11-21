@@ -34,9 +34,10 @@ struct PurifierView: View {
                                 if rule.hitsTitle {
                                     Text("标题")
                                         .font(.system(size: 9, weight: .semibold))
+                                        .foregroundStyle(AppTheme.accent)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 1)
-                                        .background(Color.accentColor.opacity(0.14), in: Capsule())
+                                        .background(AppTheme.accentSoft, in: Capsule())
                                 }
                             }
                             Text(rule.pattern)
@@ -104,7 +105,8 @@ struct PurifierView: View {
                             .frame(height: 96)
                             .scrollContentBackground(.hidden)
                             .padding(6)
-                            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+                            .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppTheme.stroke, lineWidth: 0.5))
                     }
                     .padding(.vertical, 2)
 
@@ -119,7 +121,8 @@ struct PurifierView: View {
                                 .padding(8)
                         }
                         .frame(height: 96)
-                        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+                        .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppTheme.stroke, lineWidth: 0.5))
                     }
                     .padding(.vertical, 2)
                 }
@@ -181,7 +184,8 @@ private struct RuleEditor: View {
                         .textInputAutocapitalization(.never)
                         .scrollContentBackground(.hidden)
                         .padding(6)
-                        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+                        .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppTheme.stroke, lineWidth: 0.5))
                 } header: {
                     Text("匹配内容")
                 } footer: {

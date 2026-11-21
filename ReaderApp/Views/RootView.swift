@@ -72,6 +72,7 @@ struct RootView: View {
             }
             .tag(RootTab.search)
         }
+        .tint(AppTheme.accent)
         .fullScreenCover(item: $readerBook) { book in
             ReaderView(book: book, settings: settings)
         }

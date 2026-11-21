@@ -152,10 +152,11 @@ struct HomeView: View {
         HStack(spacing: 14) {
             ZStack {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.secondary.opacity(0.12))
+                    .fill(AppTheme.card)
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(AppTheme.stroke, lineWidth: 0.5))
                 Image(systemName: id.iconName)
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppTheme.secondary)
             }
             .frame(width: 40, height: 40)
 

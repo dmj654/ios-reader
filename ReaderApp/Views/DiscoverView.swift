@@ -212,8 +212,8 @@ struct DiscoverView: View {
 
     private func cover(for item: SourceItem) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemBackground))
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(AppTheme.card)
 
             if item.cover.isEmpty == false, let url = URL(string: item.cover) {
                 AsyncImage(url: url) { image in
@@ -221,7 +221,7 @@ struct DiscoverView: View {
                 } placeholder: {
                     placeholderIcon(item)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             } else {
                 placeholderIcon(item)
             }
@@ -236,7 +236,7 @@ struct DiscoverView: View {
     private func placeholderIcon(_ item: SourceItem) -> some View {
         Image(systemName: item.type == .comic ? "photo.on.rectangle" : "book.closed")
             .font(.system(size: 26))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(AppTheme.tertiary)
     }
 
     // MARK: - 数据加载

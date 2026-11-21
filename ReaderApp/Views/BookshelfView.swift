@@ -577,7 +577,7 @@ extension BookshelfView {
                             }
                             Text("\(item.sizeText) · \(item.format)")
                                 .font(.caption2)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(AppTheme.secondary)
                             if let error = item.error {
                                 Text(error)
                                     .font(.caption2)

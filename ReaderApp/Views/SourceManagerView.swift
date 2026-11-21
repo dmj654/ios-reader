@@ -469,7 +469,7 @@ struct SourceManagerView: View {
                 } label: {
                     Text("选择")
                         .font(.system(size: 12))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(AppTheme.accent)
                 }
                 .buttonStyle(.plain)
             }
@@ -486,9 +486,11 @@ struct SourceManagerView: View {
                 .foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
+        .foregroundStyle(AppTheme.secondary)
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
-        .background(Color.secondary.opacity(0.14), in: Capsule())
+        .background(AppTheme.card, in: Capsule())
+        .overlay(Capsule().stroke(AppTheme.stroke, lineWidth: 0.5))
     }
 
     private var batchBar: some View {
@@ -527,7 +529,7 @@ struct SourceManagerView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.bar)
+        .glassBar()
         .overlay(alignment: .top) {
             Divider()
         }
@@ -555,7 +557,7 @@ struct SourceManagerView: View {
             if selecting {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 18))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(isSelected ? AppTheme.accent : AppTheme.secondary)
             }
 
             Circle()
@@ -569,7 +571,7 @@ struct SourceManagerView: View {
                 if let detail = row.detail {
                     Text(detail)
                         .font(.system(size: 10))
-                        .foregroundStyle(row.status == .jsUnsupported || row.status == .broken ? Color.secondary : Color.secondary.opacity(0.85))
+                        .foregroundStyle(row.status == .jsUnsupported || row.status == .broken ? AppTheme.secondary : AppTheme.secondary.opacity(0.85))
                         .lineLimit(1)
                 }
             }
@@ -642,7 +644,8 @@ struct SourceManagerView: View {
                     .textInputAutocapitalization(.never)
                     .scrollContentBackground(.hidden)
                     .padding(10)
-                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                    .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppTheme.stroke, lineWidth: 0.5))
                     .padding(.horizontal, 16)
 
                 Button {
