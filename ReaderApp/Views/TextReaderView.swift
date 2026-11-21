@@ -762,7 +762,8 @@ struct TextReaderView: View {
     }
 
     /// 分页请求序号：后台分页回来时丢弃过期结果，避免旧任务覆盖新排版
-    private var paginateToken = 0
+    private final class PaginateToken { var value = 0 }
+    @State private var paginateToken = PaginateToken()
 
     private func repaginate(keepingOffset: Bool) {
         guard flatText.isEmpty == false, innerSize.width > 20, innerSize.height > 20 else { return }
@@ -780,13 +781,13 @@ struct TextReaderView: View {
         let anchors = imageAnchors
         let size = innerSize
 
-        paginateToken += 1
-        let token = paginateToken
+        paginateToken.value += 1
+        let token = paginateToken.value
 
         Task.detached(priority: .userInitiated) {
             let built = Self.buildPages(text: text, anchors: anchors, attrs: attrs, size: size)
             await MainActor.run {
-                guard token == self.paginateToken else { return }
+                guard token == self.paginateToken.value else { return }
                 self.pages = built
                 self.pageIndex = self.firstPageIndex(forOffset: offset)
                 self.didJump = true
