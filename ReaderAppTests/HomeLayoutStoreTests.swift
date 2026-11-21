@@ -25,7 +25,7 @@ final class HomeLayoutStoreTests: XCTestCase {
 
     func testMoveReordersVisibleCards() {
         let store = try! makeStore()
-        store.move(fromOffsets: IndexSet([0]), toOffsets: 3)
+        store.move(fromOffsets: IndexSet([0]), toOffset: 3)
 
         XCTAssertEqual(store.layout.order, [
             .local, .history, .sources, .continueReading, .discover, .search
@@ -77,7 +77,7 @@ final class HomeLayoutStoreTests: XCTestCase {
 
         let first = HomeLayoutStore(storeURL: url)
         first.hide(.history)
-        first.move(fromOffsets: IndexSet([0]), toOffsets: 2)
+        first.move(fromOffsets: IndexSet([0]), toOffset: 2)
 
         let second = HomeLayoutStore(storeURL: url)
         XCTAssertTrue(second.layout.hidden.contains(.history))

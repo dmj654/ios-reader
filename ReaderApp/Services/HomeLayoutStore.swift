@@ -63,8 +63,8 @@ final class HomeLayoutStore: ObservableObject {
     // MARK: - 操作
 
     /// 拖动排序（仅作用于可见列表）
-    func move(fromOffsets: IndexSet, toOffsets: Int) {
-        layout.order.move(fromOffsets: fromOffsets, toOffsets: toOffsets)
+    func move(fromOffsets: IndexSet, toOffset: Int) {
+        layout.order.move(fromOffsets: fromOffsets, toOffset: toOffset)
         save()
     }
 
