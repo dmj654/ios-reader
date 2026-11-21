@@ -119,7 +119,7 @@ final class BookshelfViewModel: ObservableObject {
         return DiskScanResult(entries: entries)
     }
 
-    private static func adoptLooseFiles(from dirs: [URL], booksDir: URL) {
+    private nonisolated static func adoptLooseFiles(from dirs: [URL], booksDir: URL) {
         let fm = FileManager.default
         for dir in dirs {
             guard fm.fileExists(atPath: dir.path) else { continue }
@@ -138,7 +138,7 @@ final class BookshelfViewModel: ObservableObject {
         }
     }
 
-    private static func isRegularFile(_ url: URL) -> Bool {
+    private nonisolated static func isRegularFile(_ url: URL) -> Bool {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return false }
         return isDir.boolValue == false
@@ -146,7 +146,7 @@ final class BookshelfViewModel: ObservableObject {
 
     /// 移动失败就退化成「读进内存再写出去」
     @discardableResult
-    private static func moveOrCopy(from src: URL, to dest: URL) -> Bool {
+    private nonisolated static func moveOrCopy(from src: URL, to dest: URL) -> Bool {
         let fm = FileManager.default
         if (try? fm.moveItem(at: src, to: dest)) != nil { return true }
         if let data = try? Data(contentsOf: src) {
