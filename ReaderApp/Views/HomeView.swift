@@ -154,6 +154,7 @@ struct HomeView: View {
             .background(AppTheme.background)
             .navigationTitle("墨本")
             .navigationBarTitleDisplayMode(.large)
+            .toolbar(.hidden, for: .tabBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     EditButton()

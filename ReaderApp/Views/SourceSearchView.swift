@@ -108,6 +108,7 @@ struct SourceSearchView: View {
             .navigationTitle("找书")
             .navigationBarTitleDisplayMode(.inline)
             .background(AppTheme.background)
+            .toolbar(.hidden, for: .tabBar)
             .toolbar {
                 if embedded == false {
                     ToolbarItem(placement: .topBarLeading) {

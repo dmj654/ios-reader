@@ -52,6 +52,7 @@ struct RootView: View {
                     DiscoverView(store: sources, onSelect: { selectedSource = $0 })
                         .navigationTitle("发现")
                         .navigationBarTitleDisplayMode(.inline)
+                        .toolbar(.hidden, for: .tabBar)
                 }
                 .background(AppTheme.background)
                 .toolbar(.hidden, for: .tabBar)

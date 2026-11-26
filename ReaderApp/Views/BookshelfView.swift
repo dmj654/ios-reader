@@ -87,6 +87,7 @@ struct BookshelfView: View {
             .background(AppTheme.background)
             .navigationTitle("书架")
             .navigationBarTitleDisplayMode(.large)
+            .toolbar(.hidden, for: .tabBar)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarLeading) {
                     Button {

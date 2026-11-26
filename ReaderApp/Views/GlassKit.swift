@@ -130,25 +130,10 @@ struct FloatingTabBar: View {
     var body: some View {
         HStack(spacing: 4) {
             ForEach(AppTab.allCases) { item in
-                Button {
+                TabBarButton(item: item, selected: tab == item) {
                     guard tab != item else { return }
                     withAnimation(.snappy(duration: 0.22)) { tab = item }
-                } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: item.symbol)
-                            .font(.system(size: 21, weight: .medium))
-                            .symbolVariant(tab == item ? .fill : .regular)
-
-                        Text(item.title)
-                            .font(.system(size: 9.5, weight: tab == item ? .semibold : .regular))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .foregroundStyle(tab == item ? AppTheme.accent : AppTheme.tabInactive)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(item.title)
-                .accessibilityAddTraits(tab == item ? .isSelected : [])
             }
         }
         .padding(.horizontal, 6)
@@ -156,5 +141,46 @@ struct FloatingTabBar: View {
         .glassPanel()
         .padding(.horizontal, AppTheme.glassInset)
         .padding(.bottom, AppTheme.glassBottom)
+    }
+}
+
+/// 单段：图标 + 2 字标签，拆开写避免类型推断爆炸
+private struct TabBarButton: View {
+    let item: AppTab
+    let selected: Bool
+    let action: () -> Void
+
+    private var tint: Color {
+        selected ? AppTheme.accent : AppTheme.tabInactive
+    }
+
+    private var labelWeight: Font.Weight {
+        selected ? .semibold : .regular
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                icon
+                label
+            }
+            .frame(maxWidth: .infinity)
+            .foregroundStyle(tint)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(item.title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var icon: some View {
+        Image(systemName: item.symbol)
+            .font(.system(size: 21, weight: .medium))
+            .symbolVariant(selected ? .fill : .regular)
+    }
+
+    private var label: some View {
+        Text(item.title)
+            .font(.system(size: 9.5, weight: labelWeight))
     }
 }
