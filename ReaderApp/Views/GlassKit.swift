@@ -176,7 +176,7 @@ private struct TabBarButton: View {
     private var icon: some View {
         Image(systemName: item.symbol)
             .font(.system(size: 21, weight: .medium))
-            .symbolVariant(selected ? .fill : .regular)
+            .symbolVariant(selected ? .fill : .none)
     }
 
     private var label: some View {
