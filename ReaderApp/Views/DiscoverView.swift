@@ -43,7 +43,7 @@ struct DiscoverView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 10)
-            .padding(.bottom, 24)
+            .padding(.bottom, AppTheme.tabBarReserve + 24)
         }
         .background(AppTheme.background)
         .onAppear {

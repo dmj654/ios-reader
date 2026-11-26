@@ -27,7 +27,7 @@ enum ReaderTheme: String, CaseIterable, Codable, Identifiable {
 
     var background: Color {
         switch self {
-        case .paper: return Color(red: 0.96, green: 0.94, blue: 0.88)
+        case .paper: return Color(red: 0.980, green: 0.969, blue: 0.941)   // #FAF7F0
         case .white: return Color.white
         case .green: return Color(red: 0.80, green: 0.87, blue: 0.79)
         case .night: return Color(red: 0.10, green: 0.10, blue: 0.11)
@@ -36,7 +36,7 @@ enum ReaderTheme: String, CaseIterable, Codable, Identifiable {
 
     var foreground: Color {
         switch self {
-        case .paper: return Color(red: 0.18, green: 0.15, blue: 0.12)
+        case .paper: return Color(red: 0.11, green: 0.11, blue: 0.13)   // #1C1C21
         case .white: return Color(red: 0.12, green: 0.12, blue: 0.13)
         case .green: return Color(red: 0.15, green: 0.18, blue: 0.15)
         case .night: return Color(red: 0.78, green: 0.78, blue: 0.80)

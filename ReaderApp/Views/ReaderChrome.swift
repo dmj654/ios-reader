@@ -2,8 +2,8 @@
 //  ReaderChrome.swift
 //  ReaderApp
 //
-//  阅读页统一工具条（v0.9）
-//  - 悬浮胶囊：左右内缩 16、高 44、圆角 22、.ultraThinMaterial + 0.5pt 描边
+//  阅读页统一工具条（第三版）
+//  - 悬浮玻璃条：左右内缩 16、高 64、圆角 24、离底 12，同一套毛玻璃配方
 //  - 图标统一 17pt 线性、触控区 44×44
 //  - 小说页和漫画页共用同一套尺寸，只用明暗区分主题
 //
@@ -13,13 +13,13 @@ import SwiftUI
 enum ReaderChromeMetrics {
     static let horizontalInset: CGFloat = 16
     static let topGap: CGFloat = 8
-    static let bottomGap: CGFloat = 16
-    static let height: CGFloat = 44
-    static let radius: CGFloat = 22
+    static let bottomGap: CGFloat = 12
+    static let height: CGFloat = 64
+    static let radius: CGFloat = 24
     static let iconSize: CGFloat = 17
 }
 
-/// 胶囊底板
+/// 玻璃底板
 struct ReaderCapsule<Content: View>: View {
     let dark: Bool
     let content: Content
@@ -33,14 +33,7 @@ struct ReaderCapsule<Content: View>: View {
         content
             .frame(height: ReaderChromeMetrics.height)
             .frame(maxWidth: .infinity)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(.ultraThinMaterial)
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
-            )
+            .glassPanel(radius: ReaderChromeMetrics.radius)
             .environment(\.colorScheme, dark ? .dark : .light)
     }
 }
@@ -56,7 +49,7 @@ struct ChromeIconButton: View {
             Image(systemName: systemName)
                 .font(.system(size: ReaderChromeMetrics.iconSize, weight: .medium))
                 .foregroundStyle(tint)
-                .frame(width: ReaderChromeMetrics.height, height: ReaderChromeMetrics.height)
+                .frame(width: 44, height: ReaderChromeMetrics.height)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

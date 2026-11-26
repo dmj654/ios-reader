@@ -265,7 +265,7 @@ struct SettingsView: View {
                             .monospacedDigit()
                     }
                 } footer: {
-                    Text("本地阅读器 · 数据保存在本机；可用备份文件导出 / 导入，开启 iCloud 后在同一 Apple ID 的设备间同步。")
+                    Text("墨本 · 数据保存在本机；可用备份文件导出 / 导入，开启 iCloud 后在同一 Apple ID 的设备间同步。")
                 }
             }
             .navigationTitle(embedded ? "设置" : "阅读设置")

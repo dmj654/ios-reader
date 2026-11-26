@@ -64,10 +64,10 @@ targets:
     info:
       path: ReaderApp/Info.plist
       properties:
-        CFBundleDisplayName: "本地阅读器"
-        CFBundleName: "本地阅读器"
-        CFBundleShortVersionString: "1.26.3"
-        CFBundleVersion: "57"
+        CFBundleDisplayName: "墨本"
+        CFBundleName: "墨本"
+        CFBundleShortVersionString: "1.27.0"
+        CFBundleVersion: "58"
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
         UIRequiresFullScreen: false

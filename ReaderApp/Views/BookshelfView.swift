@@ -286,39 +286,39 @@ struct BookshelfView: View {
             }
             .padding(.horizontal, 18)
             .padding(.top, 2)
-            .padding(.bottom, 24)
+            .padding(.bottom, AppTheme.tabBarReserve + 24)
         }
         .refreshable { shelf.scan() }
     }
 
+    /// iOS 分段控件：灰底一条，选中项是白色滑块，不再用一排彩色胶囊
     private var filterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(ShelfFilter.allCases) { item in
-                    Button {
-                        withAnimation(.easeOut(duration: 0.15)) { filter = item }
-                    } label: {
-                        Text(item.name)
-                            .font(.system(size: 13, weight: .medium))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
-                            .foregroundStyle(filter == item ? Color.white : AppTheme.secondary)
-                            .background(
-                                Capsule().fill(
-                                    filter == item
-                                        ? AppTheme.accent
-                                        : AppTheme.card
-                                )
-                            )
-                            .overlay(
-                                Capsule().stroke(AppTheme.stroke, lineWidth: 0.5)
-                            )
-                    }
-                    .buttonStyle(.plain)
+        HStack(spacing: 0) {
+            ForEach(ShelfFilter.allCases) { item in
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) { filter = item }
+                } label: {
+                    Text(item.name)
+                        .font(.system(size: 12.5, weight: filter == item ? .semibold : .regular))
+                        .foregroundStyle(filter == item ? AppTheme.primary : AppTheme.secondary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 30)
+                        .background {
+                            if filter == item {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(AppTheme.card)
+                                    .shadow(color: AppTheme.cardShadow.color, radius: 3, x: 0, y: 1)
+                            }
+                        }
                 }
+                .buttonStyle(.plain)
             }
-            .padding(.vertical, 2)
         }
+        .padding(3)
+        .background(
+            AppTheme.stroke.opacity(0.35),
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
     }
 
     private var visibleBooks: [Book] {
@@ -446,7 +446,7 @@ struct CoverCell: View {
                         ZStack(alignment: .leading) {
                             Rectangle().fill(Color.black.opacity(0.28))
                             Rectangle()
-                                .fill(Color.white.opacity(0.95))
+                                .fill(cover == nil && tone.isPaper ? AppTheme.accent : Color.white.opacity(0.95))
                                 .frame(width: max(2, geo.size.width * book.progress))
                         }
                     }
@@ -466,7 +466,7 @@ struct CoverCell: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Color.red, in: Capsule())
+                        .background(AppTheme.seal, in: Capsule())
                         .padding(6)
                 }
             }
@@ -495,18 +495,39 @@ struct CoverCell: View {
                     }
             } else {
                 LinearGradient(
-                    colors: [book.format.tintColor.opacity(0.92), book.format.tintColor.opacity(0.55)],
+                    colors: [tone.top, tone.bottom],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
                 .overlay {
                     Text(initial)
                         .font(.system(size: 26, weight: .semibold, design: .serif))
-                        .foregroundStyle(.white.opacity(0.95))
+                        .foregroundStyle(tone.text)
+                }
+                .overlay(alignment: .bottomLeading) {
+                    if tone.isPaper {
+                        RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                            .fill(AppTheme.seal)
+                            .frame(width: 11, height: 11)
+                            .padding(7)
+                    }
                 }
             }
         }
         .clipped()
+    }
+
+    /// 书墙三色：墨蓝 / 主色蓝 / 纸色，按书的 UUID 固定分配
+    private var tone: (top: Color, bottom: Color, text: Color, isPaper: Bool) {
+        let first = book.id.uuidString.unicodeScalars.first?.value ?? 0
+        switch Int(first) % 3 {
+        case 0:
+            return (AppTheme.inkCover, Color(uiColor: AppTheme.hex(0x243A50)), .white.opacity(0.95), false)
+        case 1:
+            return (AppTheme.accent, Color(uiColor: AppTheme.hex(0x2A78C8)), .white.opacity(0.96), false)
+        default:
+            return (AppTheme.paperCover, Color(uiColor: AppTheme.hex(0xDCD8CE)), AppTheme.inkCover, true)
+        }
     }
 
     private var initial: String {

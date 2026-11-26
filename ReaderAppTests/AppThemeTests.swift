@@ -32,4 +32,22 @@ final class AppThemeTests: XCTestCase {
         XCTAssertNotNil(AppTheme.secondary)
         XCTAssertNotNil(AppTheme.tertiary)
     }
+
+    /// 悬浮玻璃导航的几何：高 64、圆角 24、左右 16、离底 12
+    func testFloatingGlassMetrics() {
+        XCTAssertEqual(AppTheme.glassHeight, 64)
+        XCTAssertEqual(AppTheme.glassRadius, 24)
+        XCTAssertEqual(AppTheme.glassInset, 16)
+        XCTAssertEqual(AppTheme.glassBottom, 12)
+        // 内容留白要能完整容下玻璃条，否则列表最后一行会被压住
+        XCTAssertGreaterThanOrEqual(AppTheme.tabBarReserve, AppTheme.glassHeight + AppTheme.glassBottom)
+    }
+
+    /// 阅读工具条与底栏共用同一套玻璃尺寸
+    func testReaderChromeMatchesGlass() {
+        XCTAssertEqual(ReaderChromeMetrics.height, AppTheme.glassHeight)
+        XCTAssertEqual(ReaderChromeMetrics.radius, AppTheme.glassRadius)
+        XCTAssertEqual(ReaderChromeMetrics.bottomGap, AppTheme.glassBottom)
+        XCTAssertEqual(ReaderChromeMetrics.horizontalInset, AppTheme.glassInset)
+    }
 }

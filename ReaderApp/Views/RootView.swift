@@ -2,82 +2,88 @@
 //  RootView.swift
 //  ReaderApp
 //
-//  主界面：底部 主页 / 书架 / 发现 / 搜索 四段；设置从主页「…」进入。
+//  主界面：今日 / 书架 / 发现 / 搜索 四段，底部换成悬浮毛玻璃导航。
+//  - 系统 tab bar 隐藏，只保留四段分页行为
+//  - 自绘 FloatingTabBar 叠在最上层，内容区留出玻璃高度
+//  - 设置从今日页「…」进入
 //
 
 import SwiftUI
 
 struct RootView: View {
+    typealias RootTab = AppTab
+
     @EnvironmentObject var shelf: BookshelfViewModel
 
     @StateObject private var settings = ReadingSettings()
     @StateObject private var sources = SourceStore.shared
 
-    @State private var tab: RootTab = .home
+    @State private var tab: AppTab = .home
     @State private var readerBook: Book?
     @State private var showSettings = false
     @State private var showHistory = false
     /// 发现 / 搜索共用的书详情弹层
     @State private var selectedSource: SourceItem?
 
-    enum RootTab: Hashable {
-        case home, shelf, discover, search
-    }
-
     var body: some View {
-        TabView(selection: $tab) {
-            HomeView(
-                settings: settings,
-                sources: sources,
-                shelf: shelf,
-                onOpenBook: { readerBook = $0 },
-                onOpenSettings: { showSettings = true },
-                switchTab: { tab = $0 },
-                openHistory: { showHistory = true }
-            )
-            .background(AppTheme.background)
-            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-            .tabItem {
-                Label("主页", systemImage: "house")
-            }
-            .tag(RootTab.home)
-
-            BookshelfView(settings: settings, sources: sources)
+        ZStack(alignment: .bottom) {
+            TabView(selection: $tab) {
+                HomeView(
+                    settings: settings,
+                    sources: sources,
+                    shelf: shelf,
+                    onOpenBook: { readerBook = $0 },
+                    onOpenSettings: { showSettings = true },
+                    switchTab: { tab = $0 },
+                    openHistory: { showHistory = true }
+                )
                 .background(AppTheme.background)
-                .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-                .tabItem {
-                    Label("书架", systemImage: "books.vertical")
+                .toolbar(.hidden, for: .tabBar)
+                .tabItem { Label(AppTab.home.title, systemImage: AppTab.home.symbol) }
+                .tag(AppTab.home)
+
+                BookshelfView(settings: settings, sources: sources)
+                    .background(AppTheme.background)
+                    .toolbar(.hidden, for: .tabBar)
+                    .tabItem { Label(AppTab.shelf.title, systemImage: AppTab.shelf.symbol) }
+                    .tag(AppTab.shelf)
+
+                NavigationStack {
+                    DiscoverView(store: sources, onSelect: { selectedSource = $0 })
+                        .navigationTitle("发现")
+                        .navigationBarTitleDisplayMode(.inline)
                 }
-                .tag(RootTab.shelf)
+                .background(AppTheme.background)
+                .toolbar(.hidden, for: .tabBar)
+                .tabItem { Label(AppTab.discover.title, systemImage: AppTab.discover.symbol) }
+                .tag(AppTab.discover)
 
-            NavigationStack {
-                DiscoverView(store: sources, onSelect: { selectedSource = $0 })
-                    .navigationTitle("发现")
-                    .navigationBarTitleDisplayMode(.inline)
+                SourceSearchView(shelf: shelf, store: sources, onOpenBook: { book in
+                    readerBook = book
+                }, embedded: true)
+                .background(AppTheme.background)
+                .toolbar(.hidden, for: .tabBar)
+                .tabItem { Label(AppTab.search.title, systemImage: AppTab.search.symbol) }
+                .tag(AppTab.search)
             }
-            .background(AppTheme.background)
-            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-            .tabItem {
-                Label("发现", systemImage: "square.grid.2x2")
+            .tint(AppTheme.accent)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: AppTheme.tabBarReserve)
             }
-            .tag(RootTab.discover)
 
-            SourceSearchView(shelf: shelf, store: sources, onOpenBook: { book in
-                readerBook = book
-            }, embedded: true)
-            .background(AppTheme.background)
-            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-            .tabItem {
-                Label("搜索", systemImage: "magnifyingglass")
-            }
-            .tag(RootTab.search)
+            AmbientGlow()
+                .frame(height: 230)
+                .padding(.bottom, -40)
+                .ignoresSafeArea(edges: .bottom)
+                .allowsHitTesting(false)
+
+            FloatingTabBar(tab: $tab)
         }
-        .tint(AppTheme.accent)
         .fullScreenCover(item: $readerBook) { book in
             ReaderView(book: book, settings: settings)
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView(settings: settings, sources: sources, books: shelf.books, shelf: shelf, embedded: true)
+            SettingsView(settings: settings, sources: sources, books: shelf.books, shelf: shelf)
         }
         .sheet(isPresented: $showHistory) {
             HistoryView(shelf: shelf, onOpenBook: { book in
